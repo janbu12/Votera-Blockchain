@@ -21,10 +21,12 @@ app.use(express.json());
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || JWT_SECRET;
 const SIGNER_PRIVATE_KEY = process.env.SIGNER_PRIVATE_KEY;
 const VOTING_CONTRACT_ADDRESS = process.env.VOTING_CONTRACT_ADDRESS;
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545";
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const REQUIRE_STUDENT_VERIFICATION =
   (process.env.REQUIRE_STUDENT_VERIFICATION ?? "false").toLowerCase() === "true";
 const UPLOAD_DIR =
@@ -181,14 +183,20 @@ function requireAuth(req: AuthRequest, res: express.Response, next: express.Next
 }
 
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if (!ADMIN_API_KEY) {
-    return res.status(500).json({ ok: false, reason: "Admin API key not set" });
-  }
-  const key = req.header("x-admin-key") ?? "";
-  if (key !== ADMIN_API_KEY) {
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ ok: false, reason: "Unauthorized" });
+  const [, token] = header.split(" ");
+  if (!token) return res.status(401).json({ ok: false, reason: "Unauthorized" });
+
+  try {
+    const payload = jwt.verify(token, ADMIN_JWT_SECRET) as jwt.JwtPayload;
+    if ((payload as { role?: string }).role !== "admin") {
+      return res.status(401).json({ ok: false, reason: "Unauthorized" });
+    }
+    return next();
+  } catch {
     return res.status(401).json({ ok: false, reason: "Unauthorized" });
   }
-  return next();
 }
 
 async function ensureVerifiedStudent(req: AuthRequest, res: express.Response) {
@@ -231,6 +239,30 @@ app.post("/auth/login", async (req, res) => {
     token,
     mustChangePassword: student.mustChangePassword,
   });
+});
+
+app.post("/admin/login", async (req, res) => {
+  const username = String(req.body?.username ?? "").trim();
+  const password = String(req.body?.password ?? "");
+
+  if (!ADMIN_PASSWORD) {
+    return res.status(500).json({ ok: false, reason: "Admin not configured" });
+  }
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ ok: false, reason: "Username atau password salah" });
+  }
+
+  const token = jwt.sign(
+    { sub: username, role: "admin" },
+    ADMIN_JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  return res.json({ ok: true, token });
+});
+
+app.get("/admin/me", requireAdmin, (_req, res) => {
+  return res.json({ ok: true });
 });
 
 app.post("/auth/change-password", requireAuth, async (req: AuthRequest, res) => {

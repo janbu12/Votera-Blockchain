@@ -6,6 +6,7 @@ import { readContractQueryKey } from "@wagmi/core/query";
 import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
+import { useAdminSession } from "@/components/auth/useAdminSession";
 import { useToast } from "@/components/ToastProvider";
 import { Modal } from "@/components/Modal";
 import { isUserRejectedError } from "./utils";
@@ -30,7 +31,8 @@ export function CandidateModal({
   const { push } = useToast();
   const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
   const useRelayer = adminMode === "relayer";
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const { isAdminAuthed } = useAdminSession();
+  const canRelay = useRelayer && isAdminAuthed;
   const [selectedElectionId, setSelectedElectionId] = useState<bigint | null>(
     activeElectionId ?? (electionIds[0] ?? null)
   );
@@ -96,16 +98,15 @@ export function CandidateModal({
   }, [addError, push]);
 
   async function callAdminRelayer<T>(endpoint: string, body: T) {
-    if (!adminKey) {
-      push("Admin key belum diisi", "error");
+    if (!isAdminAuthed) {
+      push("Login admin diperlukan", "error");
       return null;
     }
     try {
-      const res = await fetch(`http://localhost:4000${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-key": adminKey,
         },
         body: JSON.stringify(body),
       });
@@ -165,8 +166,12 @@ export function CandidateModal({
             onClick={() => {
               if (!selectedElectionId) return;
               if (useRelayer) {
+                if (!canRelay) {
+                  push("Login admin diperlukan", "error");
+                  return;
+                }
                 setIsAddingRelayer(true);
-                callAdminRelayer("/admin/chain/add-candidate", {
+                callAdminRelayer("/api/admin/chain/add-candidate", {
                   electionId: selectedElectionId.toString(),
                   name: candidateName.trim(),
                 }).then((result) => {
@@ -187,7 +192,8 @@ export function CandidateModal({
               isAddingRelayer ||
               isAddConfirming ||
               !selectedElectionId ||
-              candidateName.trim().length === 0
+              candidateName.trim().length === 0 ||
+              (useRelayer && !canRelay)
             }
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           >

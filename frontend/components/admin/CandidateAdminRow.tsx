@@ -11,6 +11,7 @@ import {
 } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
+import { useAdminSession } from "@/components/auth/useAdminSession";
 import { useToast } from "@/components/ToastProvider";
 import { EditCandidateModal } from "./EditCandidateModal";
 import { isUserRejectedError } from "./utils";
@@ -26,7 +27,8 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
   const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
   const useRelayer = adminMode === "relayer";
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const { isAdminAuthed } = useAdminSession();
+  const canRelay = useRelayer && isAdminAuthed;
   const { data } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
@@ -139,16 +141,15 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
   }, [editError, hideError, push]);
 
   async function callAdminRelayer<T>(endpoint: string, body: T) {
-    if (!adminKey) {
-      push("Admin key belum diisi", "error");
+    if (!isAdminAuthed) {
+      push("Login admin diperlukan", "error");
       return null;
     }
     try {
-      const res = await fetch(`http://localhost:4000${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-key": adminKey,
         },
         body: JSON.stringify(body),
       });
@@ -206,8 +207,12 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
             onClick={() => {
               if (!window.confirm("Sembunyikan kandidat ini?")) return;
               if (useRelayer) {
+                if (!canRelay) {
+                  push("Login admin diperlukan", "error");
+                  return;
+                }
                 setIsHidingRelayer(true);
-                callAdminRelayer("/admin/chain/hide-candidate", {
+                callAdminRelayer("/api/admin/chain/hide-candidate", {
                   electionId: electionId.toString(),
                   candidateId: cid.toString(),
                 }).then((result) => {
@@ -227,7 +232,8 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
               disabled ||
               isHidingWallet ||
               isHidingRelayer ||
-              isHideConfirming
+              isHideConfirming ||
+              (useRelayer && !canRelay)
             }
             className="rounded-md border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-rose-300"
           >
@@ -254,8 +260,12 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
         onSave={() =>
           useRelayer
             ? (async () => {
+                if (!canRelay) {
+                  push("Login admin diperlukan", "error");
+                  return;
+                }
                 setIsEditingRelayer(true);
-                const result = await callAdminRelayer("/admin/chain/update-candidate", {
+                const result = await callAdminRelayer("/api/admin/chain/update-candidate", {
                   electionId: electionId.toString(),
                   candidateId: cid.toString(),
                   name: editName.trim(),

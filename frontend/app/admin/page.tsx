@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAccount, useChainId, useReadContract } from "wagmi";
+import { useEffect } from "react";
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import { Connection } from "@/components/connection";
 import { WalletOptions } from "@/components/wallet-option";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
+import { clearAdminProfile } from "@/components/auth/admin-auth";
 
 export default function AdminPage() {
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const isSupportedChain = chainId === VOTING_CHAIN_ID;
@@ -25,6 +29,20 @@ export default function AdminPage() {
     !!adminAddress &&
     address.toLowerCase() === String(adminAddress).toLowerCase();
 
+  useEffect(() => {
+    if (!useRelayer) return;
+    fetch("/api/admin/me")
+      .then((res) => {
+        if (!res.ok) {
+          router.replace("/login");
+        }
+      })
+      .catch(() => {
+        router.replace("/login");
+      });
+  }, [useRelayer, router]);
+  
+
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-10">
       <div className="mx-auto max-w-4xl">
@@ -37,17 +55,31 @@ export default function AdminPage() {
               Kelola Event Pemilihan
             </h1>
           </div>
-          <Link
-            href="/login"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.sessionStorage.setItem("forceDisconnect", "1");
-              }
-            }}
-            className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
-          >
-            Kembali ke Login
-          </Link>
+          <div className="flex items-center gap-3">
+            {useRelayer && (
+              <button
+                onClick={() => {
+                  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+                  clearAdminProfile();
+                  router.push("/login");
+                }}
+                className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+              >
+                Logout Admin
+              </button>
+            )}
+            <Link
+              href="/login"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.sessionStorage.setItem("forceDisconnect", "1");
+                }
+              }}
+              className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+            >
+              Kembali ke Login
+            </Link>
+          </div>
         </div>
 
         <div className="mt-6">

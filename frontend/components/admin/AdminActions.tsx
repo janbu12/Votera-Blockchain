@@ -6,6 +6,7 @@ import { readContractQueryKey } from "@wagmi/core/query";
 import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
+import { useAdminSession } from "@/components/auth/useAdminSession";
 import { useToast } from "@/components/ToastProvider";
 import { ElectionRow } from "./ElectionRow";
 import { CandidateModal } from "./CandidateModal";
@@ -15,7 +16,8 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
   const { push } = useToast();
   const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
   const useRelayer = adminMode === "relayer";
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const { isAdminAuthed } = useAdminSession();
+  const canRelay = useRelayer && isAdminAuthed;
   const [title, setTitle] = useState("");
   const [candidateName, setCandidateName] = useState("");
   const [activeElectionId, setActiveElectionId] = useState<bigint | null>(null);
@@ -119,16 +121,15 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
   }, [statusError, push]);
 
   async function callAdminRelayer<T>(endpoint: string, body: T) {
-    if (!adminKey) {
-      push("Admin key belum diisi", "error");
+    if (!isAdminAuthed) {
+      push("Login admin diperlukan", "error");
       return null;
     }
     try {
-      const res = await fetch(`http://localhost:4000${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-key": adminKey,
         },
         body: JSON.stringify(body),
       });
@@ -162,8 +163,12 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
             onClick={() =>
               (async () => {
                 if (useRelayer) {
+                  if (!canRelay) {
+                    push("Login admin diperlukan", "error");
+                    return;
+                  }
                   setIsCreatingRelayer(true);
-                  const result = await callAdminRelayer("/admin/chain/create-election", {
+                  const result = await callAdminRelayer("/api/admin/chain/create-election", {
                     title: title.trim(),
                   });
                   if (result?.hash) setCreateRelayHash(result.hash);
@@ -182,7 +187,8 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
               isCreatingWallet ||
               isCreatingRelayer ||
               isCreateConfirming ||
-              title.trim().length === 0
+              title.trim().length === 0 ||
+              (useRelayer && !canRelay)
             }
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
@@ -230,9 +236,15 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
                 onToggleStatus={(isOpen) => {
                   setStatusElectionId(id);
                   if (useRelayer) {
+                    if (!canRelay) {
+                      push("Login admin diperlukan", "error");
+                      return;
+                    }
                     setIsChangingStatusRelayer(true);
                     callAdminRelayer(
-                      isOpen ? "/admin/chain/close-election" : "/admin/chain/open-election",
+                      isOpen
+                        ? "/api/admin/chain/close-election"
+                        : "/api/admin/chain/open-election",
                       { electionId: id.toString() }
                     ).then((result) => {
                       if (result?.hash) setStatusRelayHash(result.hash);

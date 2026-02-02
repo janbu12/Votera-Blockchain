@@ -7,6 +7,7 @@ import { Connection } from "@/components/connection";
 import { WalletOptions } from "@/components/wallet-option";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { saveStudentAuth } from "@/components/auth/student-auth";
+import { clearAdminProfile, saveAdminProfile } from "@/components/auth/admin-auth";
 
 export default function LoginPage() {
   const { isConnected } = useAccount();
@@ -65,6 +66,32 @@ function AdminLoginCard() {
       !!adminAddress &&
       address.toLowerCase() === String(adminAddress).toLowerCase();
 
+  const [adminUsername, setAdminUsername] = useState(
+    process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? "admin"
+  );
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminMsg, setAdminMsg] = useState<string | null>(null);
+
+  async function loginAdmin() {
+    setAdminMsg(null);
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: adminUsername, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdminMsg(data?.reason ?? "Login admin gagal");
+        return;
+      }
+      saveAdminProfile({ username: adminUsername });
+      router.push("/admin");
+    } catch {
+      setAdminMsg("Gagal menghubungi backend");
+    }
+  }
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Login Admin</h2>
@@ -85,13 +112,50 @@ function AdminLoginCard() {
       </div>
 
       <div className="mt-5">
-        <button
-          onClick={() => router.push("/admin")}
-          disabled={!isAdmin}
-          className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-        >
-          {isAdmin ? "Masuk Admin" : "Hubungkan wallet admin dulu"}
-        </button>
+        {useRelayer ? (
+          <div className="space-y-3">
+            <input
+              value={adminUsername}
+              onChange={(e) => setAdminUsername(e.target.value)}
+              placeholder="Username admin"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
+            />
+            <input
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Password admin"
+              type="password"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loginAdmin}
+                className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Login Admin
+              </button>
+              <button
+                onClick={() => {
+                  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+                  clearAdminProfile();
+                  setAdminPassword("");
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Clear
+              </button>
+            </div>
+            {adminMsg && <p className="text-xs text-rose-600">{adminMsg}</p>}
+          </div>
+        ) : (
+          <button
+            onClick={() => router.push("/admin")}
+            disabled={!isAdmin}
+            className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            {isAdmin ? "Masuk Admin" : "Hubungkan wallet admin dulu"}
+          </button>
+        )}
         {!useRelayer && isConnected && !isSupportedChain && (
           <p className="mt-2 text-xs text-rose-600">
             Jaringan tidak sesuai. Gunakan Localhost 8545 (chainId 31337).

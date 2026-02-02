@@ -7,6 +7,8 @@ import { Connection } from "@/components/connection";
 import { WalletOptions } from "@/components/wallet-option";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { useToast } from "@/components/ToastProvider";
+import { loadAdminProfile, saveAdminProfile } from "@/components/auth/admin-auth";
+import { useAdminSession } from "@/components/auth/useAdminSession";
 
 type VerificationStatus = "NONE" | "PENDING" | "VERIFIED" | "REJECTED";
 
@@ -60,9 +62,11 @@ export default function VerificationAdminPage() {
       !!adminAddress &&
       address.toLowerCase() === String(adminAddress).toLowerCase();
 
-  const [adminKey, setAdminKey] = useState(
-    process.env.NEXT_PUBLIC_ADMIN_KEY ?? ""
+  const { isAdminAuthed, refresh } = useAdminSession();
+  const [adminUsername, setAdminUsername] = useState(
+    process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? "admin"
   );
+  const [adminPassword, setAdminPassword] = useState("");
   const [showAdminKey, setShowAdminKey] = useState(false);
   const [status, setStatus] = useState<"PENDING" | "VERIFIED" | "REJECTED" | "ALL">(
     "PENDING"
@@ -80,29 +84,19 @@ export default function VerificationAdminPage() {
   const [adminKeyError, setAdminKeyError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.sessionStorage.getItem("adminKey") ?? "";
-    if (stored && !adminKey) setAdminKey(stored);
-  }, [adminKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (adminKey) {
-      window.sessionStorage.setItem("adminKey", adminKey);
-    } else {
-      window.sessionStorage.removeItem("adminKey");
+    const profile = loadAdminProfile();
+    if (profile?.username) {
+      setAdminUsername(profile.username);
     }
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => {
-    if (!adminKey) return;
-    fetch(`${API_BASE}/admin/verifications?status=ALL`, {
-      headers: { "x-admin-key": adminKey },
-    })
+    if (!isAdminAuthed) return;
+    fetch(`/api/admin/verifications?status=ALL`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then((result) => {
         if (!result.ok) {
-          setAdminKeyError(result.data?.reason ?? "Admin key tidak valid");
+          setAdminKeyError(result.data?.reason ?? "Login admin tidak valid");
           return;
         }
         setAdminKeyError(null);
@@ -119,14 +113,12 @@ export default function VerificationAdminPage() {
         setCounts(nextCounts);
       })
       .catch(() => {});
-  }, [adminKey]);
+  }, [isAdminAuthed]);
 
   useEffect(() => {
-    if (!adminKey) return;
+    if (!isAdminAuthed) return;
     setLoading(true);
-    fetch(`${API_BASE}/admin/verifications?status=${status}`, {
-      headers: { "x-admin-key": adminKey },
-    })
+    fetch(`/api/admin/verifications?status=${status}`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then((result) => {
         if (result.ok) {
@@ -134,14 +126,14 @@ export default function VerificationAdminPage() {
           setAdminKeyError(null);
         } else {
           push(result.data?.reason ?? "Gagal memuat verifikasi", "error");
-          setAdminKeyError(result.data?.reason ?? "Admin key tidak valid");
+          setAdminKeyError(result.data?.reason ?? "Login admin tidak valid");
         }
       })
       .catch(() => {
         push("Gagal menghubungi backend", "error");
       })
       .finally(() => setLoading(false));
-  }, [adminKey, status, push]);
+  }, [isAdminAuthed, status, push]);
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -150,10 +142,9 @@ export default function VerificationAdminPage() {
   }, [items, search]);
 
   async function approve(id: number) {
-    if (!adminKey) return;
-    const res = await fetch(`${API_BASE}/admin/verifications/${id}/approve`, {
+    if (!isAdminAuthed) return;
+    const res = await fetch(`/api/admin/verifications/${id}/approve`, {
       method: "POST",
-      headers: { "x-admin-key": adminKey },
     });
     const data = await res.json();
     if (!res.ok) {
@@ -165,13 +156,12 @@ export default function VerificationAdminPage() {
   }
 
   async function reject(id: number) {
-    if (!adminKey) return;
+    if (!isAdminAuthed) return;
     const reason = (rejectReason[id] ?? "").trim() || "Ditolak";
-    const res = await fetch(`${API_BASE}/admin/verifications/${id}/reject`, {
+    const res = await fetch(`/api/admin/verifications/${id}/reject`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-key": adminKey,
       },
       body: JSON.stringify({ reason }),
     });
@@ -208,55 +198,85 @@ export default function VerificationAdminPage() {
           </Link>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                Akses Panel Verifikasi
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Gunakan admin key dari backend untuk membuka data verifikasi.
-              </p>
-            </div>
-            <div className="w-full max-w-md">
-              <label className="text-xs font-semibold text-slate-600">
-                Admin Key
-                <div className="mt-2 flex items-center gap-2">
+        {!isAdminAuthed && (
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Akses Panel Verifikasi
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Login admin diperlukan untuk mengelola verifikasi.
+                </p>
+              </div>
+              <div className="w-full max-w-md space-y-3">
+                <label className="text-xs font-semibold text-slate-600">
+                  Username
                   <input
-                    value={adminKey}
-                    onChange={(e) => setAdminKey(e.target.value)}
-                    placeholder="Masukkan admin key"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-slate-400"
-                    type={showAdminKey ? "text" : "password"}
-                    autoComplete="new-password"
+                    value={adminUsername}
+                    onChange={(e) => setAdminUsername(e.target.value)}
+                    placeholder="Username admin"
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-slate-400"
                   />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Password
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="Password admin"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-slate-400"
+                      type={showAdminKey ? "text" : "password"}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminKey((prev) => !prev)}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      {showAdminKey ? "Sembunyikan" : "Lihat"}
+                    </button>
+                  </div>
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowAdminKey((prev) => !prev)}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                  >
-                    {showAdminKey ? "Sembunyikan" : "Lihat"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAdminKey("");
-                      if (typeof window !== "undefined") {
-                        window.sessionStorage.removeItem("adminKey");
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/admin/login`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            username: adminUsername,
+                            password: adminPassword,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setAdminKeyError(data?.reason ?? "Login gagal");
+                          return;
+                        }
+                        saveAdminProfile({ username: adminUsername });
+                        refresh();
+                        setAdminKeyError(null);
+                        push("Login admin berhasil", "success");
+                      } catch {
+                        setAdminKeyError("Gagal menghubungi backend");
                       }
                     }}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
                   >
-                    Clear
+                    Login Admin
                   </button>
                 </div>
-              </label>
-              {adminKeyError && (
-                <p className="mt-2 text-xs text-rose-600">{adminKeyError}</p>
-              )}
+                {adminKeyError && (
+                  <p className="text-xs text-rose-600">{adminKeyError}</p>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -304,9 +324,9 @@ export default function VerificationAdminPage() {
             <p className="mt-4 text-sm text-rose-600">
               Wallet ini bukan admin kontrak.
             </p>
-          ) : !adminKey ? (
+          ) : !isAdminAuthed ? (
             <p className="mt-4 text-sm text-slate-500">
-              Masukkan admin key untuk memuat daftar verifikasi.
+              Login admin untuk memuat daftar verifikasi.
             </p>
           ) : loading ? (
             <p className="mt-4 text-sm text-slate-500">Memuat data...</p>

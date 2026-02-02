@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useAccount, useChainId, useReadContract } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
+import { useAdminSession } from "@/components/auth/useAdminSession";
 import { AdminActions } from "./AdminActions";
 
 export function AdminPanel() {
@@ -11,6 +12,7 @@ export function AdminPanel() {
   const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
   const useRelayer = adminMode === "relayer";
+  const { isAdminAuthed } = useAdminSession();
   const { data: electionsCount } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
@@ -25,7 +27,7 @@ export function AdminPanel() {
   });
 
   const isAdmin = useRelayer
-    ? true
+    ? isAdminAuthed
     : !!address &&
       !!adminAddress &&
       address.toLowerCase() === String(adminAddress).toLowerCase();
