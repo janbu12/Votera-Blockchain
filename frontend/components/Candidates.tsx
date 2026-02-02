@@ -12,7 +12,6 @@ import {
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
-import { loadStudentAuth } from "@/components/auth/student-auth";
 
 export function Candidates({
   electionId,
@@ -87,15 +86,12 @@ function ElectionCandidates({ electionId }: { electionId: bigint }) {
   const [checkingNimVote, setCheckingNimVote] = useState(false);
 
   useEffect(() => {
-    const auth = loadStudentAuth();
-    if (!auth) return;
     let ignore = false;
     setCheckingNimVote(true);
-    fetch("http://localhost:4000/auth/vote-status", {
+    fetch("/api/student/vote-status", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ electionId: electionId.toString() }),
     })
@@ -296,11 +292,6 @@ function CandidateRow({
         <div className="flex flex-wrap gap-2">
           <button
             onClick={async () => {
-              const auth = loadStudentAuth();
-              if (!auth) {
-                push("Login mahasiswa diperlukan", "info");
-                return;
-              }
               setIsSigning(true);
               try {
                 if (useWalletMode) {
@@ -308,20 +299,16 @@ function CandidateRow({
                     push("Wallet belum terhubung", "info");
                     return;
                   }
-                  const res = await fetch(
-                    "http://localhost:4000/auth/vote-signature",
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${auth.token}`,
-                      },
-                      body: JSON.stringify({
-                        electionId: electionId.toString(),
-                        voterAddress: address,
-                      }),
-                    }
-                  );
+                  const res = await fetch("/api/student/vote-signature", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      electionId: electionId.toString(),
+                      voterAddress: address,
+                    }),
+                  });
                   const data = await res.json();
                   if (!res.ok) {
                     if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
@@ -329,7 +316,11 @@ function CandidateRow({
                       onNimVoted();
                       return;
                     }
-                    push(data?.reason ?? "Gagal membuat signature", "error");
+                    if (res.status === 401) {
+                      push("Login mahasiswa diperlukan", "info");
+                    } else {
+                      push(data?.reason ?? "Gagal membuat signature", "error");
+                    }
                     return;
                   }
 
@@ -346,20 +337,16 @@ function CandidateRow({
                     ],
                   });
                 } else {
-                  const res = await fetch(
-                    "http://localhost:4000/auth/vote-relay",
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${auth.token}`,
-                      },
-                      body: JSON.stringify({
-                        electionId: electionId.toString(),
-                        candidateId: cid.toString(),
-                      }),
-                    }
-                  );
+                  const res = await fetch("/api/student/vote-relay", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      electionId: electionId.toString(),
+                      candidateId: cid.toString(),
+                    }),
+                  });
                   const data = await res.json();
                   if (!res.ok) {
                     if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
@@ -367,7 +354,11 @@ function CandidateRow({
                       onNimVoted();
                       return;
                     }
-                    push(data?.reason ?? "Gagal submit vote", "error");
+                    if (res.status === 401) {
+                      push("Login mahasiswa diperlukan", "info");
+                    } else {
+                      push(data?.reason ?? "Gagal submit vote", "error");
+                    }
                     return;
                   }
                   setRelayHash(data.hash as `0x${string}`);

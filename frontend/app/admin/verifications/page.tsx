@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useAccount, useChainId, useReadContract } from "wagmi";
-import { Connection } from "@/components/connection";
-import { WalletOptions } from "@/components/wallet-option";
 import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { useToast } from "@/components/ToastProvider";
 import { loadAdminProfile, saveAdminProfile } from "@/components/auth/admin-auth";
@@ -175,28 +172,26 @@ export default function VerificationAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 px-6 py-10">
-      <div className="mx-auto max-w-6xl space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-              Admin Verification
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-900">
-              Review Identitas Mahasiswa
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Pastikan pemilih adalah pemilik NIM yang sah dengan memeriksa kartu
-              mahasiswa dan selfie.
-            </p>
-          </div>
-          <Link
-            href="/admin"
-            className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
-          >
-            Kembali ke Admin
-          </Link>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-500">
+            Admin Verification
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+            Review Identitas Mahasiswa
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            Pastikan pemilih adalah pemilik NIM yang sah dengan memeriksa kartu
+            mahasiswa dan selfie.
+          </p>
         </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          {useRelayer
+            ? "Mode relayer aktif: validasi admin via JWT."
+            : "Mode wallet aktif: validasi admin via wallet."}
+        </div>
+      </div>
 
         {!isAdminAuthed && (
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -457,28 +452,6 @@ export default function VerificationAdminPage() {
           )}
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
-                Status Wallet Admin
-              </h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Panel ini tetap membutuhkan wallet admin untuk validasi on-chain.
-              </p>
-            </div>
-            {useRelayer ? (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                Mode relayer admin aktif. Wallet tidak diperlukan.
-              </div>
-            ) : isConnected ? (
-              <Connection />
-            ) : (
-              <WalletOptions />
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

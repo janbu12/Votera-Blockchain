@@ -3,9 +3,10 @@ import { forwardAdminRequest } from "../../../_utils";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  return forwardAdminRequest(req, `/admin/verifications/${params.id}/approve`, {
+  const { id } = await params;
+  return forwardAdminRequest(req, `/admin/verifications/${id}/approve`, {
     method: "POST",
   });
 }

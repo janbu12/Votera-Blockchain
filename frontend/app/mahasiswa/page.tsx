@@ -39,13 +39,37 @@ export default function MahasiswaPage() {
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
 
   useEffect(() => {
-    if (!auth || !requireVerification) return;
     let ignore = false;
-    fetch("http://localhost:4000/auth/verification/status", {
-      headers: {
-        Authorization: `Bearer ${auth.token}`,
-      },
-    })
+    fetch("/api/student/me")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then((result) => {
+        if (ignore) return;
+        if (result.ok) {
+          const nextAuth = {
+            nim: result.data.nim,
+            mustChangePassword: !!result.data.mustChangePassword,
+          };
+          saveStudentAuth(nextAuth);
+          setAuth(nextAuth);
+          if (requireVerification) {
+            setVerificationStatus(result.data.verificationStatus);
+          }
+        } else {
+          setAuth(null);
+        }
+      })
+      .catch(() => {
+        if (!ignore) setAuth(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [requireVerification]);
+
+  useEffect(() => {
+    if (!requireVerification) return;
+    let ignore = false;
+    fetch("/api/student/verification/status")
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then((result) => {
         if (ignore) return;
@@ -62,7 +86,7 @@ export default function MahasiswaPage() {
     return () => {
       ignore = true;
     };
-  }, [auth, requireVerification]);
+  }, [requireVerification]);
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-10">
@@ -120,6 +144,43 @@ export default function MahasiswaPage() {
               </button>
             </div>
           </div>
+        ) : requireVerification && verificationStatus !== "VERIFIED" ? (
+          <VerificationCard
+            status={verificationStatus}
+            reason={verificationReason}
+            uploading={uploading}
+            uploadMsg={uploadMsg}
+            onUpload={async () => {
+              if (!cardFile || !selfieFile) {
+                setUploadMsg("Lengkapi foto kartu dan selfie.");
+                return;
+              }
+              setUploading(true);
+              setUploadMsg(null);
+              try {
+                const form = new FormData();
+                form.append("card", cardFile);
+                form.append("selfie", selfieFile);
+                const res = await fetch("/api/student/verification/upload", {
+                  method: "POST",
+                  body: form,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  setUploadMsg(data?.reason ?? "Gagal upload verifikasi");
+                  return;
+                }
+                setUploadMsg("Berhasil dikirim. Menunggu verifikasi admin.");
+                setVerificationStatus("PENDING");
+              } catch {
+                setUploadMsg("Gagal menghubungi backend");
+              } finally {
+                setUploading(false);
+              }
+            }}
+            onCardFileChange={setCardFile}
+            onSelfieFileChange={setSelfieFile}
+          />
         ) : auth.mustChangePassword ? (
           <ChangePasswordCard
             nim={auth.nim}
@@ -130,6 +191,7 @@ export default function MahasiswaPage() {
             message={changeMsg}
             loading={changing}
             onLogout={() => {
+              fetch("/api/student/logout", { method: "POST" }).catch(() => {});
               clearStudentAuth();
               setAuth(null);
               router.push("/login");
@@ -146,17 +208,11 @@ export default function MahasiswaPage() {
               }
               setChanging(true);
               try {
-                const res = await fetch(
-                  "http://localhost:4000/auth/change-password",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${auth.token}`,
-                    },
-                    body: JSON.stringify({ newPassword }),
-                  }
-                );
+                const res = await fetch("/api/student/change-password", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ newPassword }),
+                });
                 const data = await res.json();
                 if (!res.ok) {
                   setChangeMsg(data?.reason ?? "Gagal mengubah password");
@@ -183,50 +239,6 @@ export default function MahasiswaPage() {
           <p className="mt-4 text-sm text-slate-500">
             Hubungkan wallet untuk mulai voting.
           </p>
-        ) : requireVerification && verificationStatus !== "VERIFIED" ? (
-          <VerificationCard
-            status={verificationStatus}
-            reason={verificationReason}
-            uploading={uploading}
-            uploadMsg={uploadMsg}
-            onUpload={async () => {
-              if (!auth) return;
-              if (!cardFile || !selfieFile) {
-                setUploadMsg("Lengkapi foto kartu dan selfie.");
-                return;
-              }
-              setUploading(true);
-              setUploadMsg(null);
-              try {
-                const form = new FormData();
-                form.append("card", cardFile);
-                form.append("selfie", selfieFile);
-                const res = await fetch(
-                  "http://localhost:4000/auth/verification/upload",
-                  {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${auth.token}`,
-                    },
-                    body: form,
-                  }
-                );
-                const data = await res.json();
-                if (!res.ok) {
-                  setUploadMsg(data?.reason ?? "Gagal upload verifikasi");
-                  return;
-                }
-                setUploadMsg("Berhasil dikirim. Menunggu verifikasi admin.");
-                setVerificationStatus("PENDING");
-              } catch {
-                setUploadMsg("Gagal menghubungi backend");
-              } finally {
-                setUploading(false);
-              }
-            }}
-            onCardFileChange={setCardFile}
-            onSelfieFileChange={setSelfieFile}
-          />
         ) : (
           <div className="mt-6 space-y-4">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
@@ -243,10 +255,7 @@ export default function MahasiswaPage() {
                 <Candidates electionId={activeElectionId} showSelector={false} />
               </div>
             ) : (
-              <OpenElections
-                onSelect={setActiveElectionId}
-                authToken={auth.token}
-              />
+              <OpenElections onSelect={setActiveElectionId} />
             )}
           </div>
         )}
@@ -393,13 +402,7 @@ function ChangePasswordCard({
   );
 }
 
-function OpenElections({
-  onSelect,
-  authToken,
-}: {
-  onSelect: (id: bigint) => void;
-  authToken: string;
-}) {
+function OpenElections({ onSelect }: { onSelect: (id: bigint) => void }) {
   const { data: count, isLoading, error } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
@@ -426,7 +429,6 @@ function OpenElections({
             key={id.toString()}
             electionId={id}
             onSelect={onSelect}
-            authToken={authToken}
           />
         ))}
       </div>
@@ -437,11 +439,9 @@ function OpenElections({
 function OpenElectionCard({
   electionId,
   onSelect,
-  authToken,
 }: {
   electionId: bigint;
   onSelect: (id: bigint) => void;
-  authToken: string;
 }) {
   const { data: election } = useReadContract({
     address: VOTING_ADDRESS,
@@ -453,14 +453,12 @@ function OpenElectionCard({
   const [checkingVote, setCheckingVote] = useState(false);
 
   useEffect(() => {
-    if (!authToken) return;
     let ignore = false;
     setCheckingVote(true);
-    fetch("http://localhost:4000/auth/vote-status", {
+    fetch("/api/student/vote-status", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
       },
       body: JSON.stringify({ electionId: electionId.toString() }),
     })
@@ -480,7 +478,7 @@ function OpenElectionCard({
     return () => {
       ignore = true;
     };
-  }, [authToken, electionId]);
+  }, [electionId]);
 
   if (!election) {
     return (

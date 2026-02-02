@@ -241,6 +241,21 @@ app.post("/auth/login", async (req, res) => {
   });
 });
 
+app.get("/auth/me", requireAuth, async (req: AuthRequest, res) => {
+  const student = await prisma.student.findUnique({
+    where: { id: req.user!.id },
+    select: {
+      nim: true,
+      mustChangePassword: true,
+      verificationStatus: true,
+    },
+  });
+  if (!student) {
+    return res.status(404).json({ ok: false, reason: "Not found" });
+  }
+  return res.json({ ok: true, ...student });
+});
+
 app.post("/admin/login", async (req, res) => {
   const username = String(req.body?.username ?? "").trim();
   const password = String(req.body?.password ?? "");
@@ -266,6 +281,7 @@ app.get("/admin/me", requireAdmin, (_req, res) => {
 });
 
 app.post("/auth/change-password", requireAuth, async (req: AuthRequest, res) => {
+  if (!(await ensureVerifiedStudent(req, res))) return;
   const newPassword = String(req.body?.newPassword ?? "");
   if (newPassword.length < 8) {
     return res.status(400).json({ ok: false, reason: "Password minimal 8 karakter" });

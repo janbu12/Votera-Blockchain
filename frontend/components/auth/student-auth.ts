@@ -1,7 +1,6 @@
 "use client";
 
 export type StudentAuth = {
-  token: string;
   nim: string;
   mustChangePassword: boolean;
 };
