@@ -22,6 +22,9 @@ export default function MahasiswaPage() {
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [changing, setChanging] = useState(false);
   const { isConnected } = useConnection();
+  const studentMode =
+    (process.env.NEXT_PUBLIC_STUDENT_MODE ?? "wallet").toLowerCase();
+  const useWalletMode = studentMode !== "relayer";
   const [activeElectionId, setActiveElectionId] = useState<bigint | null>(null);
 
   return (
@@ -50,7 +53,17 @@ export default function MahasiswaPage() {
         </div>
 
         <div className="mt-6">
-          {isConnected ? <Connection /> : <WalletOptions />}
+          {useWalletMode ? (
+            isConnected ? (
+              <Connection />
+            ) : (
+              <WalletOptions />
+            )
+          ) : (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              Mode relayer aktif. Mahasiswa tidak perlu connect wallet.
+            </div>
+          )}
         </div>
 
         {!auth ? (
@@ -129,7 +142,7 @@ export default function MahasiswaPage() {
               }
             }}
           />
-        ) : !isConnected ? (
+        ) : useWalletMode && !isConnected ? (
           <p className="mt-4 text-sm text-slate-500">
             Hubungkan wallet untuk mulai voting.
           </p>

@@ -44,6 +44,11 @@ contract MultiElectionVoting {
         _;
     }
 
+    modifier onlySigner() {
+        require(msg.sender == signer, "Only signer");
+        _;
+    }
+
     constructor() {
         admin = msg.sender;
         signer = msg.sender;
@@ -152,6 +157,23 @@ contract MultiElectionVoting {
         require(recovered == signer, "Invalid signature");
 
         hasVoted[electionId][msg.sender] = true;
+        hasVotedNim[electionId][nimHash] = true;
+        _candidates[electionId][candidateId].voteCount += 1;
+
+        emit Voted(electionId, msg.sender, candidateId);
+    }
+
+    function voteByRelayer(
+        uint256 electionId,
+        uint256 candidateId,
+        bytes32 nimHash
+    ) external onlySigner {
+        require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        require(elections[electionId].isOpen, "Election closed");
+        require(!hasVotedNim[electionId][nimHash], "NIM already voted");
+        require(candidateId > 0 && candidateId <= elections[electionId].candidatesCount, "Invalid candidate");
+        require(_candidates[electionId][candidateId].isActive, "Candidate hidden");
+
         hasVotedNim[electionId][nimHash] = true;
         _candidates[electionId][candidateId].voteCount += 1;
 

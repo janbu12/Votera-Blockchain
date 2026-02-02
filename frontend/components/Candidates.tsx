@@ -175,6 +175,9 @@ function CandidateRow({
   onNimVoted: () => void;
 }) {
   const { address } = useAccount();
+  const studentMode =
+    (process.env.NEXT_PUBLIC_STUDENT_MODE ?? "wallet").toLowerCase();
+  const useWalletMode = studentMode !== "relayer";
 
   const { data, isLoading, error, refetch } = useReadContract({
     address: VOTING_ADDRESS,
@@ -188,22 +191,25 @@ function CandidateRow({
     abi: VOTING_ABI,
     functionName: "hasVoted",
     args: address ? [electionId, address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: useWalletMode && !!address },
   });
 
-  const alreadyVoted = voted === true || nimAlreadyVoted;
+  const alreadyVoted = useWalletMode
+    ? voted === true || nimAlreadyVoted
+    : nimAlreadyVoted;
 
   const { data: hash, isPending, writeContract, error: writeError } =
     useWriteContract();
+  const [relayHash, setRelayHash] = useState<`0x${string}` | null>(null);
+  const activeHash = useWalletMode ? hash : relayHash;
   const {
     data: voteReceipt,
     isLoading: isConfirming,
     isSuccess: isVoteSuccess,
-  } =
-    useWaitForTransactionReceipt({
-    hash,
+  } = useWaitForTransactionReceipt({
+    hash: activeHash ?? undefined,
     confirmations: 1,
-    query: { enabled: !!hash },
+    query: { enabled: !!activeHash },
   });
 
   const queryClient = useQueryClient();
@@ -212,9 +218,9 @@ function CandidateRow({
   const handledHashRef = useRef<`0x${string}` | null>(null);
 
   useEffect(() => {
-    if (isVoteSuccess && hash) {
-      if (handledHashRef.current === hash) return;
-      handledHashRef.current = hash;
+    if (isVoteSuccess && activeHash) {
+      if (handledHashRef.current === activeHash) return;
+      handledHashRef.current = activeHash;
       queryClient.invalidateQueries({
         queryKey: readContractQueryKey({
           address: VOTING_ADDRESS,
@@ -233,10 +239,22 @@ function CandidateRow({
           }),
         });
       }
-      push(formatTxToast("Voting berhasil", hash, voteReceipt?.blockNumber), "success");
+      push(
+        formatTxToast("Voting berhasil", activeHash, voteReceipt?.blockNumber),
+        "success"
+      );
       onNimVoted();
     }
-  }, [isVoteSuccess, queryClient, electionId, id, address, push, onNimVoted]);
+  }, [
+    isVoteSuccess,
+    activeHash,
+    queryClient,
+    electionId,
+    id,
+    address,
+    push,
+    onNimVoted,
+  ]);
 
   useEffect(() => {
     if (isUserRejectedError(writeError)) {
@@ -278,10 +296,6 @@ function CandidateRow({
         <div className="flex flex-wrap gap-2">
           <button
             onClick={async () => {
-              if (!address) {
-                push("Wallet belum terhubung", "info");
-                return;
-              }
               const auth = loadStudentAuth();
               if (!auth) {
                 push("Login mahasiswa diperlukan", "info");
@@ -289,43 +303,75 @@ function CandidateRow({
               }
               setIsSigning(true);
               try {
-                const res = await fetch(
-                  "http://localhost:4000/auth/vote-signature",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${auth.token}`,
-                    },
-                    body: JSON.stringify({
-                      electionId: electionId.toString(),
-                      voterAddress: address,
-                    }),
-                  }
-                );
-                const data = await res.json();
-                if (!res.ok) {
-                  if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
-                    push("NIM sudah voting", "info");
-                    onNimVoted();
+                if (useWalletMode) {
+                  if (!address) {
+                    push("Wallet belum terhubung", "info");
                     return;
                   }
-                  push(data?.reason ?? "Gagal membuat signature", "error");
-                  return;
-                }
+                  const res = await fetch(
+                    "http://localhost:4000/auth/vote-signature",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${auth.token}`,
+                      },
+                      body: JSON.stringify({
+                        electionId: electionId.toString(),
+                        voterAddress: address,
+                      }),
+                    }
+                  );
+                  const data = await res.json();
+                  if (!res.ok) {
+                    if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
+                      push("NIM sudah voting", "info");
+                      onNimVoted();
+                      return;
+                    }
+                    push(data?.reason ?? "Gagal membuat signature", "error");
+                    return;
+                  }
 
-                writeContract({
-                  address: VOTING_ADDRESS,
-                  abi: VOTING_ABI,
-                  functionName: "vote",
-                  args: [
-                    electionId,
-                    cid,
-                    data.nimHash,
-                    BigInt(data.deadline),
-                    data.signature,
-                  ],
-                });
+                  writeContract({
+                    address: VOTING_ADDRESS,
+                    abi: VOTING_ABI,
+                    functionName: "vote",
+                    args: [
+                      electionId,
+                      cid,
+                      data.nimHash,
+                      BigInt(data.deadline),
+                      data.signature,
+                    ],
+                  });
+                } else {
+                  const res = await fetch(
+                    "http://localhost:4000/auth/vote-relay",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${auth.token}`,
+                      },
+                      body: JSON.stringify({
+                        electionId: electionId.toString(),
+                        candidateId: cid.toString(),
+                      }),
+                    }
+                  );
+                  const data = await res.json();
+                  if (!res.ok) {
+                    if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
+                      push("NIM sudah voting", "info");
+                      onNimVoted();
+                      return;
+                    }
+                    push(data?.reason ?? "Gagal submit vote", "error");
+                    return;
+                  }
+                  setRelayHash(data.hash as `0x${string}`);
+                }
               } catch {
                 push("Gagal menghubungi backend", "error");
               } finally {
@@ -351,7 +397,9 @@ function CandidateRow({
               : alreadyVoted
               ? "Sudah Voting"
               : isSigning
-              ? "Menyiapkan signature..."
+              ? useWalletMode
+                ? "Menyiapkan signature..."
+                : "Mengirim vote..."
               : isPending
               ? "Menunggu MetaMask..."
               : isConfirming

@@ -3,7 +3,7 @@ import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
-import { createPublicClient, encodePacked, http, keccak256 } from "viem";
+import { createPublicClient, createWalletClient, encodePacked, http, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const app = express();
@@ -30,6 +30,13 @@ const publicClient = createPublicClient({
   transport: http(RPC_URL),
 });
 
+const walletClient = signerAccount
+  ? createWalletClient({
+      account: signerAccount,
+      transport: http(RPC_URL),
+    })
+  : null;
+
 const VOTING_READ_ABI = [
   {
     name: "hasVotedNim",
@@ -40,6 +47,20 @@ const VOTING_READ_ABI = [
       { name: "", type: "bytes32" },
     ],
     outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+const VOTING_WRITE_ABI = [
+  {
+    name: "voteByRelayer",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "electionId", type: "uint256" },
+      { name: "candidateId", type: "uint256" },
+      { name: "nimHash", type: "bytes32" },
+    ],
+    outputs: [],
   },
 ] as const;
 
@@ -180,6 +201,55 @@ app.post("/auth/vote-signature", requireAuth, async (req: AuthRequest, res) => {
     deadline,
     signature,
   });
+});
+
+app.post("/auth/vote-relay", requireAuth, async (req: AuthRequest, res) => {
+  if (!walletClient || !VOTING_CONTRACT_ADDRESS) {
+    return res.status(500).json({ ok: false, reason: "Relayer not configured" });
+  }
+
+  const electionIdRaw = req.body?.electionId;
+  const candidateIdRaw = req.body?.candidateId;
+  if (!electionIdRaw || !candidateIdRaw) {
+    return res.status(400).json({ ok: false, reason: "Invalid payload" });
+  }
+
+  let electionId: bigint;
+  let candidateId: bigint;
+  try {
+    electionId = BigInt(electionIdRaw);
+    candidateId = BigInt(candidateIdRaw);
+  } catch {
+    return res.status(400).json({ ok: false, reason: "Invalid id" });
+  }
+
+  const nimHash = keccak256(new TextEncoder().encode(req.user!.nim));
+
+  try {
+    const alreadyVoted = await publicClient.readContract({
+      address: VOTING_CONTRACT_ADDRESS as `0x${string}`,
+      abi: VOTING_READ_ABI,
+      functionName: "hasVotedNim",
+      args: [electionId, nimHash],
+    });
+    if (alreadyVoted) {
+      return res.status(409).json({ ok: false, reason: "NIM sudah voting" });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, reason: "Gagal cek status vote" });
+  }
+
+  try {
+    const hash = await walletClient.writeContract({
+      address: VOTING_CONTRACT_ADDRESS as `0x${string}`,
+      abi: VOTING_WRITE_ABI,
+      functionName: "voteByRelayer",
+      args: [electionId, candidateId, nimHash],
+    });
+    return res.json({ ok: true, hash });
+  } catch {
+    return res.status(500).json({ ok: false, reason: "Gagal submit vote" });
+  }
 });
 
 app.post("/auth/vote-status", requireAuth, async (req: AuthRequest, res) => {
