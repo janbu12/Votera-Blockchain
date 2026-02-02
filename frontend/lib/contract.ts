@@ -1,5 +1,6 @@
 export const VOTING_ADDRESS =
   "0x5fbdb2315678afecb367f032d93f642f64180aa3" as const;
+export const VOTING_CHAIN_ID = 31337 as const;
 
 export const VOTING_ABI = [
   {

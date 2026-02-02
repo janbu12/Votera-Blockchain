@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useDisconnect, useReadContract } from "wagmi";
+import { useAccount, useChainId, useDisconnect, useReadContract } from "wagmi";
 import { Connection } from "@/components/connection";
 import { WalletOptions } from "@/components/wallet-option";
-import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { saveStudentAuth } from "@/components/auth/student-auth";
 
 export default function LoginPage() {
@@ -48,10 +48,13 @@ export default function LoginPage() {
 function AdminLoginCard() {
   const router = useRouter();
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const { data: adminAddress } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "admin",
+    query: { enabled: isConnected && isSupportedChain },
   });
 
   const isAdmin =
@@ -78,7 +81,12 @@ function AdminLoginCard() {
         >
           {isAdmin ? "Masuk Admin" : "Hubungkan wallet admin dulu"}
         </button>
-        {isConnected && !isAdmin && (
+        {isConnected && !isSupportedChain && (
+          <p className="mt-2 text-xs text-rose-600">
+            Jaringan tidak sesuai. Gunakan Localhost 8545 (chainId 31337).
+          </p>
+        )}
+        {isConnected && isSupportedChain && !isAdmin && (
           <p className="mt-2 text-xs text-slate-500">
             Wallet yang terhubung bukan admin kontrak.
           </p>

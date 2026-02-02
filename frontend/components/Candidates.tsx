@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { readContractQueryKey } from "@wagmi/core/query";
 import {
@@ -10,6 +10,7 @@ import {
   useWriteContract,
 } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
 import { loadStudentAuth } from "@/components/auth/student-auth";
 
@@ -194,7 +195,11 @@ function CandidateRow({
 
   const { data: hash, isPending, writeContract, error: writeError } =
     useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isVoteSuccess } =
+  const {
+    data: voteReceipt,
+    isLoading: isConfirming,
+    isSuccess: isVoteSuccess,
+  } =
     useWaitForTransactionReceipt({
     hash,
     confirmations: 1,
@@ -204,9 +209,12 @@ function CandidateRow({
   const queryClient = useQueryClient();
   const { push } = useToast();
   const [isSigning, setIsSigning] = useState(false);
+  const handledHashRef = useRef<`0x${string}` | null>(null);
 
   useEffect(() => {
-    if (isVoteSuccess) {
+    if (isVoteSuccess && hash) {
+      if (handledHashRef.current === hash) return;
+      handledHashRef.current = hash;
       queryClient.invalidateQueries({
         queryKey: readContractQueryKey({
           address: VOTING_ADDRESS,
@@ -225,7 +233,7 @@ function CandidateRow({
           }),
         });
       }
-      push("Voting berhasil", "success");
+      push(formatTxToast("Voting berhasil", hash, voteReceipt?.blockNumber), "success");
       onNimVoted();
     }
   }, [isVoteSuccess, queryClient, electionId, id, address, push, onNimVoted]);

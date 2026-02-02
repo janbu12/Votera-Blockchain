@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { readContractQueryKey } from "@wagmi/core/query";
 import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
 import { Modal } from "@/components/Modal";
 import { isUserRejectedError } from "./utils";
@@ -44,7 +45,11 @@ export function CandidateModal({
     writeContract: addCandidate,
     error: addError,
   } = useWriteContract();
-  const { isLoading: isAddConfirming, isSuccess: isAddSuccess } =
+  const {
+    data: addReceipt,
+    isLoading: isAddConfirming,
+    isSuccess: isAddSuccess,
+  } =
     useWaitForTransactionReceipt({
       hash: addHash,
       confirmations: 1,
@@ -65,7 +70,14 @@ export function CandidateModal({
           args: [selectedElectionId],
         }),
       });
-      push("Kandidat berhasil ditambah", "success");
+      push(
+        formatTxToast(
+          "Kandidat berhasil ditambah",
+          addHash,
+          addReceipt?.blockNumber
+        ),
+        "success"
+      );
       setTimeout(() => {
         onClose();
       }, 0);

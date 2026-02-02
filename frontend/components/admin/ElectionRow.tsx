@@ -1,7 +1,7 @@
 "use client";
 
-import { useReadContract } from "wagmi";
-import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { useChainId, useReadContract } from "wagmi";
+import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { CandidateList } from "./CandidateList";
 
 type Props = {
@@ -17,11 +17,14 @@ export function ElectionRow({
   onToggleStatus,
   isStatusPending,
 }: Props) {
+  const chainId = useChainId();
+  const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const { data: election } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "elections",
     args: [electionId],
+    query: { enabled: isSupportedChain },
   });
 
   if (!election) {

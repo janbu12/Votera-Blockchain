@@ -3,8 +3,14 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { readContractQueryKey } from "@wagmi/core/query";
-import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import {
+  useChainId,
+  useReadContract,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
+import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
+import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
 import { EditCandidateModal } from "./EditCandidateModal";
 import { isUserRejectedError } from "./utils";
@@ -16,11 +22,14 @@ type Props = {
 };
 
 export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
+  const chainId = useChainId();
+  const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const { data } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "getCandidate",
     args: [electionId, candidateId],
+    query: { enabled: isSupportedChain },
   });
 
   const { push } = useToast();
@@ -33,7 +42,11 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
     writeContract: updateCandidate,
     error: editError,
   } = useWriteContract();
-  const { isLoading: isEditConfirming, isSuccess: isEditSuccess } =
+  const {
+    data: editReceipt,
+    isLoading: isEditConfirming,
+    isSuccess: isEditSuccess,
+  } =
     useWaitForTransactionReceipt({
       hash: editHash,
       confirmations: 1,
@@ -46,7 +59,11 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
     writeContract: hideCandidate,
     error: hideError,
   } = useWriteContract();
-  const { isLoading: isHideConfirming, isSuccess: isHideSuccess } =
+  const {
+    data: hideReceipt,
+    isLoading: isHideConfirming,
+    isSuccess: isHideSuccess,
+  } =
     useWaitForTransactionReceipt({
       hash: hideHash,
       confirmations: 1,
@@ -65,7 +82,14 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
           args: [electionId, candidateId],
         }),
       });
-      push("Kandidat berhasil diupdate", "success");
+      push(
+        formatTxToast(
+          "Kandidat berhasil diupdate",
+          editHash,
+          editReceipt?.blockNumber
+        ),
+        "success"
+      );
       setTimeout(() => {
         setIsEditOpen(false);
       }, 0);
@@ -90,7 +114,14 @@ export function CandidateAdminRow({ electionId, candidateId, isOpen }: Props) {
           args: [electionId],
         }),
       });
-      push("Kandidat disembunyikan", "success");
+      push(
+        formatTxToast(
+          "Kandidat disembunyikan",
+          hideHash,
+          hideReceipt?.blockNumber
+        ),
+        "success"
+      );
     }
   }, [isHideSuccess, queryClient, electionId, candidateId, push]);
 

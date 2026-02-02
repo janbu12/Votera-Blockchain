@@ -48,7 +48,7 @@ const votingAddress =
   envAddress ||
   (addressMatch ? addressMatch[1] : "0x0000000000000000000000000000000000000000");
 
-const nextContent = `export const VOTING_ADDRESS =\n  \"${votingAddress}\" as const;\n\nexport const VOTING_ABI = ${JSON.stringify(
+const nextContent = `export const VOTING_ADDRESS =\n  \"${votingAddress}\" as const;\nexport const VOTING_CHAIN_ID = 31337 as const;\n\nexport const VOTING_ABI = ${JSON.stringify(
   abi,
   null,
   2

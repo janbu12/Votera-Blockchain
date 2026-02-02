@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { readContractQueryKey } from "@wagmi/core/query";
 import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
 import { ElectionRow } from "./ElectionRow";
 import { CandidateModal } from "./CandidateModal";
@@ -24,7 +25,11 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
     writeContract: createElection,
     error: createError,
   } = useWriteContract();
-  const { isLoading: isCreateConfirming, isSuccess: isCreateSuccess } =
+  const {
+    data: createReceipt,
+    isLoading: isCreateConfirming,
+    isSuccess: isCreateSuccess,
+  } =
     useWaitForTransactionReceipt({
       hash: createHash,
       confirmations: 1,
@@ -37,7 +42,11 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
     writeContract: changeStatus,
     error: statusError,
   } = useWriteContract();
-  const { isLoading: isStatusConfirming, isSuccess: isStatusSuccess } =
+  const {
+    data: statusReceipt,
+    isLoading: isStatusConfirming,
+    isSuccess: isStatusSuccess,
+  } =
     useWaitForTransactionReceipt({
       hash: statusHash,
       confirmations: 1,
@@ -55,7 +64,10 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
           functionName: "electionsCount",
         }),
       });
-      push("Event berhasil dibuat", "success");
+      push(
+        formatTxToast("Event berhasil dibuat", createHash, createReceipt?.blockNumber),
+        "success"
+      );
       setTimeout(() => {
         setTitle("");
       }, 0);
@@ -72,7 +84,14 @@ export function AdminActions({ electionIds }: { electionIds: bigint[] }) {
           args: [statusElectionId],
         }),
       });
-      push("Status pemilihan diperbarui", "success");
+      push(
+        formatTxToast(
+          "Status pemilihan diperbarui",
+          statusHash,
+          statusReceipt?.blockNumber
+        ),
+        "success"
+      );
     }
   }, [isStatusSuccess, statusElectionId, queryClient, push]);
 

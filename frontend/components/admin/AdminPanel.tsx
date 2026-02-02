@@ -1,21 +1,25 @@
 "use client";
 
 import { useMemo } from "react";
-import { useAccount, useReadContract } from "wagmi";
-import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { useAccount, useChainId, useReadContract } from "wagmi";
+import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { AdminActions } from "./AdminActions";
 
 export function AdminPanel() {
   const { address } = useAccount();
+  const chainId = useChainId();
+  const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const { data: electionsCount } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "electionsCount",
+    query: { enabled: !!address && isSupportedChain },
   });
   const { data: adminAddress } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "admin",
+    query: { enabled: !!address && isSupportedChain },
   });
 
   const isAdmin =

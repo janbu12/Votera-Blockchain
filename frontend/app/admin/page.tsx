@@ -1,18 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useChainId, useReadContract } from "wagmi";
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import { Connection } from "@/components/connection";
 import { WalletOptions } from "@/components/wallet-option";
-import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
+import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 
 export default function AdminPage() {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const isSupportedChain = chainId === VOTING_CHAIN_ID;
   const { data: adminAddress } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
     functionName: "admin",
+    query: { enabled: isConnected && isSupportedChain },
   });
 
   const isAdmin =
@@ -52,6 +55,10 @@ export default function AdminPage() {
         {!isConnected ? (
           <p className="mt-4 text-sm text-slate-500">
             Hubungkan wallet admin untuk melanjutkan.
+          </p>
+        ) : !isSupportedChain ? (
+          <p className="mt-4 text-sm text-rose-600">
+            Jaringan tidak sesuai. Gunakan Localhost 8545 (chainId 31337).
           </p>
         ) : !isAdmin ? (
           <p className="mt-4 text-sm text-rose-600">
