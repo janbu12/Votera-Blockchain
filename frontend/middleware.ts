@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
   const pathname = request.nextUrl.pathname;
 
-  if (pathname.startsWith("/admin") && adminMode === "relayer") {
+  if (pathname.startsWith("/admin")) {
     const token = request.cookies.get("adminToken")?.value;
     if (!token) {
       const url = request.nextUrl.clone();

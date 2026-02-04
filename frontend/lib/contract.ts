@@ -107,6 +107,50 @@ export const VOTING_ABI = [
       },
       {
         "indexed": false,
+        "internalType": "enum MultiElectionVoting.ElectionMode",
+        "name": "mode",
+        "type": "uint8"
+      }
+    ],
+    "name": "ElectionModeSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "startTime",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "endTime",
+        "type": "uint64"
+      }
+    ],
+    "name": "ElectionScheduleSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
         "internalType": "bool",
         "name": "isOpen",
         "type": "bool"
@@ -237,6 +281,21 @@ export const VOTING_ABI = [
         "type": "bool"
       },
       {
+        "internalType": "uint64",
+        "name": "startTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "endTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "enum MultiElectionVoting.ElectionMode",
+        "name": "mode",
+        "type": "uint8"
+      },
+      {
         "internalType": "uint256",
         "name": "candidatesCount",
         "type": "uint256"
@@ -297,6 +356,55 @@ export const VOTING_ABI = [
         "internalType": "bool",
         "name": "isActive",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getElection",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "title",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "isOpen",
+        "type": "bool"
+      },
+      {
+        "internalType": "enum MultiElectionVoting.ElectionMode",
+        "name": "mode",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint64",
+        "name": "startTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "endTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint256",
+        "name": "candidatesCount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "activeCandidatesCount",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -377,6 +485,47 @@ export const VOTING_ABI = [
       }
     ],
     "name": "openElection",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum MultiElectionVoting.ElectionMode",
+        "name": "mode",
+        "type": "uint8"
+      }
+    ],
+    "name": "setElectionMode",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint64",
+        "name": "startTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "endTime",
+        "type": "uint64"
+      }
+    ],
+    "name": "setElectionSchedule",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -1,27 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useChainId, useDisconnect, useReadContract } from "wagmi";
-import { Connection } from "@/components/connection";
-import { WalletOptions } from "@/components/wallet-option";
-import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { saveStudentAuth } from "@/components/auth/student-auth";
 import { clearAdminProfile, saveAdminProfile } from "@/components/auth/admin-auth";
 
 export default function LoginPage() {
-  const { isConnected } = useAccount();
-  const { disconnect } = useDisconnect();
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const shouldDisconnect = window.sessionStorage.getItem("forceDisconnect");
-    if (shouldDisconnect === "1" && isConnected) {
-      disconnect();
-      window.sessionStorage.removeItem("forceDisconnect");
-    }
-  }, [isConnected, disconnect]);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 px-6 py-12">
       <div className="mx-auto max-w-5xl">
@@ -48,24 +32,6 @@ export default function LoginPage() {
 
 function AdminLoginCard() {
   const router = useRouter();
-  const { address, isConnected } = useAccount();
-  const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
-  const useRelayer = adminMode === "relayer";
-  const chainId = useChainId();
-  const isSupportedChain = chainId === VOTING_CHAIN_ID;
-  const { data: adminAddress } = useReadContract({
-    address: VOTING_ADDRESS,
-    abi: VOTING_ABI,
-    functionName: "admin",
-    query: { enabled: !useRelayer && isConnected && isSupportedChain },
-  });
-
-  const isAdmin = useRelayer
-    ? true
-    : !!address &&
-      !!adminAddress &&
-      address.toLowerCase() === String(adminAddress).toLowerCase();
-
   const [adminUsername, setAdminUsername] = useState(
     process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? "admin"
   );
@@ -96,76 +62,44 @@ function AdminLoginCard() {
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Login Admin</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Gunakan wallet admin untuk membuat event dan mengelola kandidat.
+        Login admin untuk mengelola event, kandidat, dan verifikasi.
       </p>
 
-      <div className="mt-5 space-y-4">
-        {useRelayer ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            Mode relayer admin aktif. Login tanpa wallet.
-          </div>
-        ) : isConnected ? (
-          <Connection />
-        ) : (
-          <WalletOptions />
-        )}
-      </div>
-
       <div className="mt-5">
-        {useRelayer ? (
-          <div className="space-y-3">
-            <input
-              value={adminUsername}
-              onChange={(e) => setAdminUsername(e.target.value)}
-              placeholder="Username admin"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
-            />
-            <input
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Password admin"
-              type="password"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
-            />
-            <div className="flex items-center gap-2">
-              <button
-                onClick={loginAdmin}
-                className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Login Admin
-              </button>
-              <button
-                onClick={() => {
-                  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-                  clearAdminProfile();
-                  setAdminPassword("");
-                }}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                Clear
-              </button>
-            </div>
-            {adminMsg && <p className="text-xs text-rose-600">{adminMsg}</p>}
+        <div className="space-y-3">
+          <input
+            value={adminUsername}
+            onChange={(e) => setAdminUsername(e.target.value)}
+            placeholder="Username admin"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
+          />
+          <input
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            placeholder="Password admin"
+            type="password"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm shadow-sm outline-none focus:border-slate-400"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loginAdmin}
+              className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Login Admin
+            </button>
+            <button
+              onClick={() => {
+                fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+                clearAdminProfile();
+                setAdminPassword("");
+              }}
+              className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              Clear
+            </button>
           </div>
-        ) : (
-          <button
-            onClick={() => router.push("/admin")}
-            disabled={!isAdmin}
-            className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {isAdmin ? "Masuk Admin" : "Hubungkan wallet admin dulu"}
-          </button>
-        )}
-        {!useRelayer && isConnected && !isSupportedChain && (
-          <p className="mt-2 text-xs text-rose-600">
-            Jaringan tidak sesuai. Gunakan Localhost 8545 (chainId 31337).
-          </p>
-        )}
-        {!useRelayer && isConnected && isSupportedChain && !isAdmin && (
-          <p className="mt-2 text-xs text-slate-500">
-            Wallet yang terhubung bukan admin kontrak.
-          </p>
-        )}
+          {adminMsg && <p className="text-xs text-rose-600">{adminMsg}</p>}
+        </div>
       </div>
     </section>
   );

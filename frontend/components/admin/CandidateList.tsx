@@ -7,15 +7,21 @@ type Props = {
   electionId: bigint;
   candidatesCount: bigint;
   isOpen: boolean;
+  isLocked: boolean;
 };
 
-export function CandidateList({ electionId, candidatesCount, isOpen }: Props) {
+export function CandidateList({
+  electionId,
+  candidatesCount,
+  isOpen,
+  isLocked,
+}: Props) {
   const ids = useMemo(() => {
-    const n = Number(candidatesCount ?? 0n);
+    const n = Number(candidatesCount ?? BigInt(0));
     return Array.from({ length: n }, (_, i) => BigInt(i + 1));
   }, [candidatesCount]);
 
-  if (candidatesCount === 0n) {
+  if (candidatesCount === BigInt(0)) {
     return (
       <p className="mt-4 text-xs text-slate-500">
         Belum ada kandidat untuk event ini.
@@ -31,6 +37,7 @@ export function CandidateList({ electionId, candidatesCount, isOpen }: Props) {
           electionId={electionId}
           candidateId={id}
           isOpen={isOpen}
+          isLocked={isLocked}
         />
       ))}
     </div>

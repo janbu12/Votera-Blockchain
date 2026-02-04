@@ -29,8 +29,7 @@ export function CandidateModal({
   onClose,
 }: Props) {
   const { push } = useToast();
-  const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
-  const useRelayer = adminMode === "relayer";
+  const useRelayer = true;
   const { isAdminAuthed } = useAdminSession();
   const canRelay = useRelayer && isAdminAuthed;
   const [selectedElectionId, setSelectedElectionId] = useState<bigint | null>(
@@ -73,7 +72,7 @@ export function CandidateModal({
         queryKey: readContractQueryKey({
           address: VOTING_ADDRESS,
           abi: VOTING_ABI,
-          functionName: "elections",
+          functionName: "getElection",
           args: [selectedElectionId],
         }),
       });

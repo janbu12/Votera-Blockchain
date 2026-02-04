@@ -1,0 +1,11 @@
+import { NextRequest } from "next/server";
+import { forwardAdminRequest } from "../../_utils";
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  return forwardAdminRequest(req, "/admin/elections/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

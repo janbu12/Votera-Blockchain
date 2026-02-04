@@ -12,6 +12,7 @@ import {
 import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
+import { Modal } from "@/components/Modal";
 
 export function Candidates({
   electionId,
@@ -27,7 +28,7 @@ export function Candidates({
   });
 
   const electionIds = useMemo(() => {
-    const n = Number(count ?? 0n);
+    const n = Number(count ?? BigInt(0));
     return Array.from({ length: n }, (_, i) => BigInt(i + 1));
   }, [count]);
 
@@ -42,7 +43,7 @@ export function Candidates({
 
   if (isLoading) return <p>Loading elections...</p>;
   if (error) return <p className="text-sm text-red-600">Error: {error.message}</p>;
-  if (!count || count === 0n) return <p>Belum ada pemilihan.</p>;
+  if (!count || count === BigInt(0)) return <p>Belum ada pemilihan.</p>;
 
   return (
     <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -79,11 +80,19 @@ function ElectionCandidates({ electionId }: { electionId: bigint }) {
   const { data: election, isLoading, error } = useReadContract({
     address: VOTING_ADDRESS,
     abi: VOTING_ABI,
-    functionName: "elections",
+    functionName: "getElection",
     args: [electionId],
+    query: { refetchInterval: 10000 },
   });
   const [nimVoted, setNimVoted] = useState(false);
   const [checkingNimVote, setCheckingNimVote] = useState(false);
+  const [schedule, setSchedule] = useState<{
+    opensAt: string | null;
+    closesAt: string | null;
+    mode?: number;
+    isOpen?: boolean;
+  } | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -113,16 +122,51 @@ function ElectionCandidates({ electionId }: { electionId: bigint }) {
     };
   }, [electionId]);
 
+  useEffect(() => {
+    let ignore = false;
+    setScheduleLoading(true);
+    fetch(`/api/student/elections/schedule/${electionId.toString()}`)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then((result) => {
+        if (ignore) return;
+        if (result.ok) {
+          setSchedule(result.data?.schedule ?? null);
+        } else {
+          setSchedule(null);
+        }
+      })
+      .catch(() => {
+        if (!ignore) setSchedule(null);
+      })
+      .finally(() => {
+        if (!ignore) setScheduleLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [electionId]);
+
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   if (isLoading) return <p className="text-sm text-slate-500">Loading election...</p>;
   if (error) return <p className="text-sm text-red-600">Error: {error.message}</p>;
   if (!election) return null;
 
-  const [title, isOpen, candidatesCount] = election;
+  const [title, isOpen, _mode, _startTime, _endTime, candidatesCount] = election;
 
   const ids = useMemo(() => {
-    const n = Number(candidatesCount ?? 0n);
+    const n = Number(candidatesCount ?? BigInt(0));
     return Array.from({ length: n }, (_, i) => BigInt(i + 1));
   }, [candidatesCount]);
+
+  const opensAt = schedule?.opensAt ? new Date(schedule.opensAt) : null;
+  const closesAt = schedule?.closesAt ? new Date(schedule.closesAt) : null;
+  const countdownText = formatCountdown(now, opensAt, closesAt);
 
   return (
     <div className="mt-6">
@@ -132,7 +176,30 @@ function ElectionCandidates({ electionId }: { electionId: bigint }) {
           ({isOpen ? "Open" : "Closed"})
         </span>
       </h3>
-      {candidatesCount === 0n ? (
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+        {scheduleLoading ? (
+          <span>Memuat jadwal...</span>
+        ) : schedule ? (
+          <>
+            <span>
+              Buka:{" "}
+              {opensAt ? opensAt.toLocaleString("id-ID") : "Belum diatur"}
+            </span>
+            <span>
+              Tutup:{" "}
+              {closesAt ? closesAt.toLocaleString("id-ID") : "Belum diatur"}
+            </span>
+            {countdownText && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                {countdownText}
+              </span>
+            )}
+          </>
+        ) : (
+          <span>Jadwal belum diatur</span>
+        )}
+      </div>
+      {candidatesCount === BigInt(0) ? (
         <p className="mt-3 text-sm text-slate-500">
           Belum ada kandidat untuk event ini.
         </p>
@@ -171,9 +238,7 @@ function CandidateRow({
   onNimVoted: () => void;
 }) {
   const { address } = useAccount();
-  const studentMode =
-    (process.env.NEXT_PUBLIC_STUDENT_MODE ?? "wallet").toLowerCase();
-  const useWalletMode = studentMode !== "relayer";
+  const useWalletMode = false;
 
   const { data, isLoading, error, refetch } = useReadContract({
     address: VOTING_ADDRESS,
@@ -212,6 +277,19 @@ function CandidateRow({
   const { push } = useToast();
   const [isSigning, setIsSigning] = useState(false);
   const handledHashRef = useRef<`0x${string}` | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const backendBase = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+  const [profile, setProfile] = useState<{
+    tagline: string | null;
+    about: string | null;
+    visi: string | null;
+    misi: string | null;
+    programKerja: string | null;
+    photoUrl?: string | null;
+  } | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (isVoteSuccess && activeHash) {
@@ -277,6 +355,52 @@ function CandidateRow({
     }
   }, [writeError, push]);
 
+  const openProfile = async () => {
+    setIsProfileOpen(true);
+    setProfileError(null);
+    setProfileLoading(true);
+    try {
+      const res = await fetch(
+        `/api/student/candidates/${electionId.toString()}/${id.toString()}`
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data?.reason ?? "Gagal memuat profil kandidat");
+        setProfile(null);
+      } else {
+        if (data?.profile?.photoUrl && data.profile.photoUrl.startsWith("/")) {
+          data.profile.photoUrl = `${backendBase}${data.profile.photoUrl}`;
+        }
+        setProfile(data?.profile ?? null);
+      }
+    } catch {
+      setProfileError("Gagal menghubungi backend");
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    fetch(`/api/student/candidates/${electionId.toString()}/${id.toString()}`)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then((result) => {
+        if (ignore) return;
+        if (result.ok && result.data?.profile?.photoUrl) {
+          const raw = result.data.profile.photoUrl;
+          const resolved = raw.startsWith("/") ? `${backendBase}${raw}` : raw;
+          setPhotoUrl(resolved);
+        }
+      })
+      .catch(() => {
+        if (!ignore) setPhotoUrl(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [backendBase, electionId, id]);
+
   if (isLoading) return <li className="text-sm">Loading kandidat #{id.toString()}...</li>;
   if (error)
     return (
@@ -291,16 +415,33 @@ function CandidateRow({
   const disabled =
     !isOpen || alreadyVoted || isPending || isConfirming || isSigning;
 
-  return (
-    <li className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">{name}</p>
-          <p className="text-xs text-slate-500">
-            Votes: {voteCount.toString()} • ID {cid.toString()}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    return (
+      <li className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={`Foto ${name}`}
+                className="h-12 w-12 rounded-full object-cover"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[10px] text-slate-400">
+                Foto
+              </div>
+            )}
+            <div>
+              <p className="text-sm font-semibold text-slate-900">{name}</p>
+              <p className="text-xs text-slate-500">Profil & visi misi kandidat.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={openProfile}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-white"
+            >
+              Lihat Profil
+          </button>
           <button
             onClick={async () => {
               setIsSigning(true);
@@ -425,6 +566,74 @@ function CandidateRow({
         !isKnownVoteError(writeError) && (
           <p className="mt-2 text-xs text-red-600">{writeError.message}</p>
         )}
+
+      <Modal
+        open={isProfileOpen}
+        title="Profil Kandidat"
+        description={name}
+        onClose={() => setIsProfileOpen(false)}
+        widthClassName="max-w-2xl"
+      >
+        <div className="space-y-3 text-sm text-slate-600">
+          {profileLoading ? (
+            <p>Memuat profil...</p>
+          ) : profileError ? (
+            <p className="text-rose-600">{profileError}</p>
+          ) : (
+            <>
+              {profile?.photoUrl && (
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                  <img
+                    src={profile.photoUrl}
+                    alt={`Foto ${name}`}
+                    className="w-full object-contain"
+                  />
+                </div>
+              )}
+              <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-700">Tagline</p>
+                <p className="mt-1 text-sm text-slate-600 whitespace-pre-line">
+                  {profile?.tagline || "Belum diisi"}
+                </p>
+              </section>
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">Tentang</p>
+                <p className="mt-1 text-sm text-slate-600 whitespace-pre-line">
+                  {profile?.about || "Belum diisi"}
+                </p>
+              </section>
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">Visi</p>
+                <p className="mt-1 text-sm text-slate-600 whitespace-pre-line">
+                  {profile?.visi || "Belum diisi"}
+                </p>
+              </section>
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">Misi</p>
+                <p className="mt-1 text-sm text-slate-600 whitespace-pre-line">
+                  {profile?.misi || "Belum diisi"}
+                </p>
+              </section>
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">
+                  Program Kerja
+                </p>
+                <p className="mt-1 text-sm text-slate-600 whitespace-pre-line">
+                  {profile?.programKerja || "Belum diisi"}
+                </p>
+              </section>
+            </>
+          )}
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => setIsProfileOpen(false)}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      </Modal>
     </li>
   );
 }
@@ -449,4 +658,39 @@ function isKnownVoteError(error: unknown) {
       ? error.message.toLowerCase()
       : "";
   return message.includes("nim already voted") || message.includes("already voted");
+}
+
+function formatCountdown(
+  now: number,
+  opensAt: Date | null,
+  closesAt: Date | null
+) {
+  const nowMs = now;
+  const openMs = opensAt?.getTime() ?? null;
+  const closeMs = closesAt?.getTime() ?? null;
+
+  if (openMs && nowMs < openMs) {
+    const diff = openMs - nowMs;
+    return `Mulai ${formatDuration(diff)}`;
+  }
+  if (closeMs && nowMs < closeMs) {
+    const diff = closeMs - nowMs;
+    return `Sisa ${formatDuration(diff)}`;
+  }
+  if (closeMs && nowMs >= closeMs) {
+    return "Jadwal berakhir";
+  }
+  return null;
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}h ${hours}j ${minutes}m`;
+  if (hours > 0) return `${hours}j ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}d`;
+  return `${seconds}d`;
 }

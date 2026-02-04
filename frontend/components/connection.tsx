@@ -7,6 +7,8 @@ export function Connection() {
   const { disconnect } = useDisconnect()
   const { data: ensName } = useEnsName({ address })
   const { data: ensAvatar } = useEnsAvatar({ name: ensName! })
+  const shortAddress =
+    address ? `${address.slice(0, 6)}...${address.slice(-4)}` : null
   return (
      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-3">
@@ -20,7 +22,8 @@ export function Connection() {
         <div>
           <p className="text-xs text-slate-500">Wallet terhubung</p>
           <p className="text-sm font-semibold text-slate-900">
-            {address && (ensName ? `${ensName} (${address})` : address)}
+            {address &&
+              (ensName ? `${ensName} (${shortAddress})` : shortAddress)}
           </p>
         </div>
       </div>

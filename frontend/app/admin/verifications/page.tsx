@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useChainId, useReadContract } from "wagmi";
-import { VOTING_ABI, VOTING_ADDRESS, VOTING_CHAIN_ID } from "@/lib/contract";
 import { useToast } from "@/components/ToastProvider";
 import { loadAdminProfile, saveAdminProfile } from "@/components/auth/admin-auth";
 import { useAdminSession } from "@/components/auth/useAdminSession";
@@ -40,24 +38,8 @@ function fileUrl(pathValue?: string | null) {
 }
 
 export default function VerificationAdminPage() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const isSupportedChain = chainId === VOTING_CHAIN_ID;
-  const adminMode = (process.env.NEXT_PUBLIC_ADMIN_MODE ?? "wallet").toLowerCase();
-  const useRelayer = adminMode === "relayer";
-  const { data: adminAddress } = useReadContract({
-    address: VOTING_ADDRESS,
-    abi: VOTING_ABI,
-    functionName: "admin",
-    query: { enabled: !useRelayer && isConnected && isSupportedChain },
-  });
+  const useRelayer = true;
   const { push } = useToast();
-
-  const isAdmin = useRelayer
-    ? true
-    : !!address &&
-      !!adminAddress &&
-      address.toLowerCase() === String(adminAddress).toLowerCase();
 
   const { isAdminAuthed, refresh } = useAdminSession();
   const [adminUsername, setAdminUsername] = useState(
@@ -79,6 +61,9 @@ export default function VerificationAdminPage() {
   const [search, setSearch] = useState("");
   const [rejectReason, setRejectReason] = useState<Record<number, string>>({});
   const [adminKeyError, setAdminKeyError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<
+    Record<number, "approve" | "reject" | null>
+  >({});
 
   useEffect(() => {
     const profile = loadAdminProfile();
@@ -87,7 +72,7 @@ export default function VerificationAdminPage() {
     }
   }, []);
 
-  useEffect(() => {
+  const fetchCounts = () => {
     if (!isAdminAuthed) return;
     fetch(`/api/admin/verifications?status=ALL`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
@@ -110,9 +95,9 @@ export default function VerificationAdminPage() {
         setCounts(nextCounts);
       })
       .catch(() => {});
-  }, [isAdminAuthed]);
+  };
 
-  useEffect(() => {
+  const fetchItems = () => {
     if (!isAdminAuthed) return;
     setLoading(true);
     fetch(`/api/admin/verifications?status=${status}`)
@@ -130,7 +115,24 @@ export default function VerificationAdminPage() {
         push("Gagal menghubungi backend", "error");
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchCounts();
+  }, [isAdminAuthed]);
+
+  useEffect(() => {
+    fetchItems();
   }, [isAdminAuthed, status, push]);
+
+  useEffect(() => {
+    if (!isAdminAuthed) return;
+    const id = window.setInterval(() => {
+      fetchCounts();
+      fetchItems();
+    }, 10000);
+    return () => window.clearInterval(id);
+  }, [isAdminAuthed, status]);
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -140,35 +142,47 @@ export default function VerificationAdminPage() {
 
   async function approve(id: number) {
     if (!isAdminAuthed) return;
-    const res = await fetch(`/api/admin/verifications/${id}/approve`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      push(data?.reason ?? "Gagal approve", "error");
-      return;
+    setActionLoading((prev) => ({ ...prev, [id]: "approve" }));
+    try {
+      const res = await fetch(`/api/admin/verifications/${id}/approve`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        push(data?.reason ?? "Gagal approve", "error");
+        return;
+      }
+      push("Mahasiswa terverifikasi", "success");
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      fetchCounts();
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [id]: null }));
     }
-    push("Mahasiswa terverifikasi", "success");
-    setItems((prev) => prev.filter((item) => item.id !== id));
   }
 
   async function reject(id: number) {
     if (!isAdminAuthed) return;
     const reason = (rejectReason[id] ?? "").trim() || "Ditolak";
-    const res = await fetch(`/api/admin/verifications/${id}/reject`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ reason }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      push(data?.reason ?? "Gagal reject", "error");
-      return;
+    setActionLoading((prev) => ({ ...prev, [id]: "reject" }));
+    try {
+      const res = await fetch(`/api/admin/verifications/${id}/reject`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        push(data?.reason ?? "Gagal reject", "error");
+        return;
+      }
+      push("Verifikasi ditolak", "info");
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      fetchCounts();
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [id]: null }));
     }
-    push("Verifikasi ditolak", "info");
-    setItems((prev) => prev.filter((item) => item.id !== id));
   }
 
   return (
@@ -187,9 +201,7 @@ export default function VerificationAdminPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-          {useRelayer
-            ? "Mode relayer aktif: validasi admin via JWT."
-            : "Mode wallet aktif: validasi admin via wallet."}
+          Mode relayer aktif: validasi admin via JWT.
         </div>
       </div>
 
@@ -307,19 +319,7 @@ export default function VerificationAdminPage() {
             />
           </div>
 
-          {!useRelayer && !isConnected ? (
-            <p className="mt-4 text-sm text-slate-500">
-              Hubungkan wallet admin untuk melanjutkan.
-            </p>
-          ) : !useRelayer && !isSupportedChain ? (
-            <p className="mt-4 text-sm text-rose-600">
-              Jaringan tidak sesuai. Gunakan Localhost 8545 (chainId 31337).
-            </p>
-          ) : !useRelayer && !isAdmin ? (
-            <p className="mt-4 text-sm text-rose-600">
-              Wallet ini bukan admin kontrak.
-            </p>
-          ) : !isAdminAuthed ? (
+          {!isAdminAuthed ? (
             <p className="mt-4 text-sm text-slate-500">
               Login admin untuk memuat daftar verifikasi.
             </p>
@@ -336,6 +336,9 @@ export default function VerificationAdminPage() {
                 const selfieUrl = fileUrl(item.verificationSelfiePath);
                 const canReview =
                   item.verificationStatus === "PENDING" && !!cardUrl && !!selfieUrl;
+                const isBusy = actionLoading[item.id] != null;
+                const isApproving = actionLoading[item.id] === "approve";
+                const isRejecting = actionLoading[item.id] === "reject";
                 return (
                   <div
                     key={item.id}
@@ -401,17 +404,17 @@ export default function VerificationAdminPage() {
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => approve(item.id)}
-                        disabled={!canReview}
-                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700"
+                        disabled={!canReview || isBusy}
+                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
                       >
-                        Approve
+                        {isApproving ? "Menyetujui..." : "Approve"}
                       </button>
                       <button
                         onClick={() => reject(item.id)}
-                        disabled={item.verificationStatus !== "PENDING"}
-                        className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                        disabled={item.verificationStatus !== "PENDING" || isBusy}
+                        className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-rose-100 disabled:text-rose-300"
                       >
-                        Reject
+                        {isRejecting ? "Menolak..." : "Reject"}
                       </button>
                       <input
                         value={rejectReason[item.id] ?? ""}
@@ -422,7 +425,8 @@ export default function VerificationAdminPage() {
                           }))
                         }
                         placeholder="Alasan penolakan"
-                        className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                        disabled={isBusy}
+                        className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100"
                       />
                       {cardUrl && (
                         <a

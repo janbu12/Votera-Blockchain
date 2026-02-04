@@ -11,9 +11,17 @@ contract MultiElectionVoting {
         bool isActive;
     }
 
+    enum ElectionMode {
+        Manual,
+        Scheduled
+    }
+
     struct Election {
         string title;
         bool isOpen;
+        uint64 startTime;
+        uint64 endTime;
+        ElectionMode mode;
         uint256 candidatesCount;
         uint256 activeCandidatesCount;
     }
@@ -36,6 +44,8 @@ contract MultiElectionVoting {
     event CandidateUpdated(uint256 indexed electionId, uint256 indexed candidateId, string name);
     event CandidateHidden(uint256 indexed electionId, uint256 indexed candidateId);
     event ElectionStatusChanged(uint256 indexed electionId, bool isOpen);
+    event ElectionScheduleSet(uint256 indexed electionId, uint64 startTime, uint64 endTime);
+    event ElectionModeSet(uint256 indexed electionId, ElectionMode mode);
     event Voted(uint256 indexed electionId, address indexed voter, uint256 indexed candidateId);
     event SignerUpdated(address indexed signer);
 
@@ -66,6 +76,9 @@ contract MultiElectionVoting {
         elections[electionId] = Election({
             title: title,
             isOpen: false,
+            startTime: 0,
+            endTime: 0,
+            mode: ElectionMode.Manual,
             candidatesCount: 0,
             activeCandidatesCount: 0
         });
@@ -75,7 +88,7 @@ contract MultiElectionVoting {
 
     function addCandidate(uint256 electionId, string calldata name) external onlyAdminOrSigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
-        require(!elections[electionId].isOpen, "Election already open");
+        _requireEditable(electionId);
 
         elections[electionId].candidatesCount += 1;
         elections[electionId].activeCandidatesCount += 1;
@@ -92,6 +105,7 @@ contract MultiElectionVoting {
 
     function openElection(uint256 electionId) external onlyAdminOrSigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        require(elections[electionId].mode == ElectionMode.Manual, "Scheduled mode");
         require(elections[electionId].activeCandidatesCount > 0, "No candidates");
         elections[electionId].isOpen = true;
         emit ElectionStatusChanged(electionId, true);
@@ -99,8 +113,63 @@ contract MultiElectionVoting {
 
     function closeElection(uint256 electionId) external onlyAdminOrSigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        require(elections[electionId].mode == ElectionMode.Manual, "Scheduled mode");
         elections[electionId].isOpen = false;
         emit ElectionStatusChanged(electionId, false);
+    }
+
+    function setElectionMode(uint256 electionId, ElectionMode mode) external onlyAdminOrSigner {
+        require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        Election storage e = elections[electionId];
+        if (e.mode == ElectionMode.Scheduled) {
+            require(mode == ElectionMode.Scheduled, "Mode locked");
+        }
+        if (mode == ElectionMode.Scheduled) {
+            require(e.startTime < e.endTime, "Schedule required");
+        }
+        e.mode = mode;
+        emit ElectionModeSet(electionId, mode);
+    }
+
+    function setElectionSchedule(uint256 electionId, uint64 startTime, uint64 endTime) external onlyAdminOrSigner {
+        require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        require(startTime < endTime, "Invalid schedule");
+        Election storage e = elections[electionId];
+        if (e.mode == ElectionMode.Manual) {
+            require(!e.isOpen, "Election open");
+        }
+        if (e.startTime != 0) {
+            require(block.timestamp < e.startTime, "Schedule locked");
+        }
+        e.startTime = startTime;
+        e.endTime = endTime;
+        emit ElectionScheduleSet(electionId, startTime, endTime);
+    }
+
+    function getElection(uint256 electionId)
+        external
+        view
+        returns (
+            string memory title,
+            bool isOpen,
+            ElectionMode mode,
+            uint64 startTime,
+            uint64 endTime,
+            uint256 candidatesCount,
+            uint256 activeCandidatesCount
+        )
+    {
+        require(electionId > 0 && electionId <= electionsCount, "Invalid election");
+        Election storage e = elections[electionId];
+        return (
+            e.title,
+            _isElectionOpen(e),
+            e.mode,
+            e.startTime,
+            e.endTime,
+            e.candidatesCount,
+            e.activeCandidatesCount
+        );
     }
 
     function getCandidate(uint256 electionId, uint256 candidateId)
@@ -116,7 +185,7 @@ contract MultiElectionVoting {
 
     function updateCandidate(uint256 electionId, uint256 candidateId, string calldata name) external onlyAdminOrSigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
-        require(!elections[electionId].isOpen, "Election open");
+        _requireEditable(electionId);
         require(candidateId > 0 && candidateId <= elections[electionId].candidatesCount, "Invalid candidate");
 
         Candidate storage c = _candidates[electionId][candidateId];
@@ -127,7 +196,7 @@ contract MultiElectionVoting {
 
     function hideCandidate(uint256 electionId, uint256 candidateId) external onlyAdminOrSigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
-        require(!elections[electionId].isOpen, "Election open");
+        _requireEditable(electionId);
         require(candidateId > 0 && candidateId <= elections[electionId].candidatesCount, "Invalid candidate");
 
         Candidate storage c = _candidates[electionId][candidateId];
@@ -145,7 +214,7 @@ contract MultiElectionVoting {
         bytes calldata signature
     ) external {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
-        require(elections[electionId].isOpen, "Election closed");
+        require(_isElectionOpen(elections[electionId]), "Election closed");
         require(!hasVoted[electionId][msg.sender], "Already voted");
         require(!hasVotedNim[electionId][nimHash], "NIM already voted");
         require(candidateId > 0 && candidateId <= elections[electionId].candidatesCount, "Invalid candidate");
@@ -174,7 +243,7 @@ contract MultiElectionVoting {
         bytes32 nimHash
     ) external onlySigner {
         require(electionId > 0 && electionId <= electionsCount, "Invalid election");
-        require(elections[electionId].isOpen, "Election closed");
+        require(_isElectionOpen(elections[electionId]), "Election closed");
         require(!hasVotedNim[electionId][nimHash], "NIM already voted");
         require(candidateId > 0 && candidateId <= elections[electionId].candidatesCount, "Invalid candidate");
         require(_candidates[electionId][candidateId].isActive, "Candidate hidden");
@@ -206,5 +275,22 @@ contract MultiElectionVoting {
         }
         require(v == 27 || v == 28, "Invalid signature v");
         return ecrecover(hash, v, r, s);
+    }
+
+    function _isElectionOpen(Election storage e) internal view returns (bool) {
+        if (e.mode == ElectionMode.Scheduled) {
+            if (e.startTime == 0 || e.endTime == 0) return false;
+            return block.timestamp >= e.startTime && block.timestamp <= e.endTime;
+        }
+        return e.isOpen;
+    }
+
+    function _requireEditable(uint256 electionId) internal view {
+        Election storage e = elections[electionId];
+        if (e.mode == ElectionMode.Scheduled) {
+            require(e.startTime == 0 || block.timestamp < e.startTime, "Election started");
+        } else {
+            require(!e.isOpen, "Election open");
+        }
     }
 }
