@@ -3,7 +3,8 @@ param(
   [switch]$SkipContracts,
   [switch]$SkipBuild,
   [switch]$DevMode,
-  [switch]$SetupOnly
+  [switch]$SetupOnly,
+  [switch]$JustDeployContracts
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +43,15 @@ $backendDir = Join-Path $RootDir "backend"
 $campusDir = Join-Path $RootDir "campus-service"
 $faceDir = Join-Path $RootDir "face-service"
 $frontendDir = Join-Path $RootDir "frontend"
+
+if ($JustDeployContracts) {
+  Invoke-Step -Name "Contracts: npm install" -Path $contractsDir -Command "npm install"
+  Invoke-Step -Name "Contracts: compile" -Path $contractsDir -Command "npx hardhat compile"
+  Invoke-Step -Name "Contracts: deploy multi election ($Network)" -Path $contractsDir -Command "npx hardhat run scripts/deploy-multi.ts --network
+  $Network"
+  Write-Host "Deployed contracts only as requested." -ForegroundColor Green
+  exit 0
+}
 
 if (-not $SkipContracts) {
   Invoke-Step -Name "Contracts: npm install" -Path $contractsDir -Command "npm install"
