@@ -20,7 +20,10 @@ type VerificationItem = {
 
 type Counts = Record<VerificationStatus, number>;
 
-const API_BASE = "http://localhost:4000";
+const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(
+  /\/+$/,
+  ""
+);
 
 function fmtDate(value?: string | null) {
   if (!value) return "-";
@@ -34,6 +37,7 @@ function fmtDate(value?: string | null) {
 
 function fileUrl(pathValue?: string | null) {
   if (!pathValue) return null;
+  if (/^https?:\/\//i.test(pathValue)) return pathValue;
   const cleaned = pathValue.replace(/^\/+/, "");
   return `${API_BASE}/${cleaned}`;
 }

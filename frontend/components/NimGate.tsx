@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(
+  /\/+$/,
+  ""
+);
+
 export function NimGate({
   onVerified,
 }: {
@@ -15,7 +20,7 @@ export function NimGate({
     setLoading(true);
     setMsg(null);
     try {
-      const res = await fetch("http://localhost:4000/verify-nim", {
+      const res = await fetch(`${BACKEND_URL}/verify-nim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nim }),
@@ -34,7 +39,7 @@ export function NimGate({
         setMsg("❌ NIM tidak terdaftar / tidak aktif.");
       }
     } catch {
-      setMsg("❌ Backend tidak bisa diakses. Pastikan backend jalan di :4000");
+      setMsg("❌ Backend tidak bisa diakses. Periksa NEXT_PUBLIC_BACKEND_URL.");
     } finally {
       setLoading(false);
     }
