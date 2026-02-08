@@ -27,6 +27,7 @@ model Student {
   verificationRejectedAt DateTime?
   verificationRejectReason String?
   voteReceipts       VoteReceipt[]
+  voteVerifications  StudentVoteVerification[]
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
@@ -42,6 +43,28 @@ model VoteReceipt {
   createdAt   DateTime @default(now())
 
   @@unique([studentId, electionId])
+}
+
+model StudentVoteVerification {
+  id                Int      @id @default(autoincrement())
+  studentId         Int
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  nim               String
+  electionId        BigInt
+  candidateId       BigInt
+  provider          String
+  providerRequestId String?
+  assertionTokenHash String?
+  livenessPassed    Boolean
+  faceMatchScore    Float?
+  decision          String
+  reasonCode        String?
+  ip                String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+
+  @@index([nim, electionId, createdAt])
+  @@unique([assertionTokenHash])
 }
 
 model CandidateProfile {

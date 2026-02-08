@@ -2,4 +2,5 @@ besu-network-gen-4/
 *.key
 .env
 .env.*
+!**/.env.example
 campus-service/node_modules/

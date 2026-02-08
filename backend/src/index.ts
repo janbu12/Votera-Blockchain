@@ -19,7 +19,8 @@ import { requestLogger } from "./middleware/requestLogger";
 
 const app = express();
 app.use(cors({ origin: "http://localhost:3000" }));
-app.use(express.json());
+// Selfie data URL can exceed the default 100kb parser limit.
+app.use(express.json({ limit: "2mb" }));
 app.use(requestLogger);
 
 ensureSuperadmin().catch((err) => logger.error({ err }, "superadmin bootstrap failed"));
@@ -34,6 +35,18 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   logger.error({ err }, "unhandled error");
   if (res.headersSent) return;
+  const payloadTooLarge =
+    typeof err === "object" &&
+    err !== null &&
+    ("status" in err || "statusCode" in err) &&
+    (((err as { status?: number }).status ?? 0) === 413 ||
+      ((err as { statusCode?: number }).statusCode ?? 0) === 413);
+  if (payloadTooLarge) {
+    return res.status(413).json({
+      ok: false,
+      reason: "Payload terlalu besar. Coba ulangi dengan selfie berukuran lebih kecil.",
+    });
+  }
   res.status(500).json({ ok: false, reason: "Internal server error" });
 });
 

@@ -11,6 +11,13 @@ export type CampusStudent = {
   officialPhotoUrl: string;
 };
 
+export type CampusFaceReference = {
+  nim: string;
+  studentId: string;
+  referenceUrl: string;
+  expiresAt: string;
+};
+
 async function campusRequest<T>(
   endpoint: string,
   init?: RequestInit
@@ -89,4 +96,39 @@ export async function campusChangePassword(
   if (!result.ok) {
     throw new Error(result.data?.reason ?? "Gagal mengubah password di campus service");
   }
+}
+
+export async function campusGetFaceReference(
+  nim: string
+): Promise<CampusFaceReference | null> {
+  const result = await campusRequest<{
+    ok: boolean;
+    nim?: string;
+    studentId?: string;
+    referenceUrl?: string;
+    expiresAt?: string;
+  }>(`/internal/students/${encodeURIComponent(nim)}/face-reference`, {
+    method: "GET",
+  });
+
+  if (!result.ok) {
+    if (result.status === 404) return null;
+    throw new Error("Gagal memuat foto referensi resmi dari campus service");
+  }
+
+  if (
+    !result.data?.nim ||
+    !result.data.studentId ||
+    !result.data.referenceUrl ||
+    !result.data.expiresAt
+  ) {
+    throw new Error("Response face reference dari campus service tidak valid");
+  }
+
+  return {
+    nim: result.data.nim,
+    studentId: result.data.studentId,
+    referenceUrl: result.data.referenceUrl,
+    expiresAt: result.data.expiresAt,
+  };
 }

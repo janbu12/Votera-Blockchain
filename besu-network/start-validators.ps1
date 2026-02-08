@@ -2,7 +2,8 @@ param(
   [string]$BesuBin = "besu",
   [string]$GenDir = (Resolve-Path (Join-Path $PSScriptRoot "..\\besu-network-gen-4")).Path,
   [int]$BaseP2PPort = 30303,
-  [switch]$SkipVal1
+  [switch]$SkipVal1,
+  [switch]$JustVal1
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,6 +58,12 @@ function Start-Validator {
 
   Write-Host ("Starting validator #{0} on p2p port {1} (key {2})" -f $Index, $P2PPort, (Split-Path $KeyDir -Leaf))
   Start-Process -FilePath $BesuBin -ArgumentList ($args -join ' ')
+}
+
+if ($JustVal1) {
+  Start-Validator -Index 1 -KeyDir $keyDirs[0].FullName -P2PPort $BaseP2PPort -UseStaticNodes:$false
+  Write-Host "Started only validator #1 as requested."
+  exit 0
 }
 
 if (-not $SkipVal1) {

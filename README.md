@@ -27,6 +27,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 
 ## Arsitektur Singkat
 - `campus-service/` — service data mahasiswa kampus (auth mahasiswa + foto resmi).
+- `face-service/` — service verifikasi wajah lokal (FastAPI + `facenet-pytorch` / MTCNN + FaceNet embedding, CPU).
 - `contracts/` — smart contract (Hardhat) untuk multi-event voting.
 - `backend/` — Express + Prisma + PostgreSQL (integrasi campus service, verifikasi selfie, relayer transaksi).
 - `frontend/` — Next.js + wagmi untuk UI admin/mahasiswa.
@@ -39,7 +40,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 - Admin/Superadmin login → backend verifikasi credential → token admin.
 
 **2) Verifikasi identitas mahasiswa**
-- Mahasiswa upload selfie → backend simpan file + status verifikasi `PENDING` di DB.
+- Mahasiswa upload selfie (untuk verifikasi akun) → backend simpan file + status verifikasi `PENDING` di DB.
 - Foto resmi mahasiswa diambil dari `campus-service` sebagai pembanding saat review admin.
 - Admin review di `/admin/verifications` → backend update status (`VERIFIED/REJECTED`) + audit log.
 - Jika `VERIFIED`, mahasiswa boleh ganti password dan membuka akses menu lainnya.
@@ -53,8 +54,9 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 - Status open/closed dibaca dari kontrak dan/atau sync backend (auto-close) → ditampilkan ke UI.
 
 **5) Voting (mode relayer)**
-- Mahasiswa pilih kandidat → frontend kirim request ke backend.
-- Backend hash NIM → kirim transaksi `voteByRelayer` ke kontrak.
+- Mahasiswa pilih kandidat → frontend buka modal kamera (step-up selfie) lalu kirim request ke backend.
+- Backend ambil foto resmi dari `campus-service`, lalu verifikasi wajah ke `face-service`.
+- Jika verifikasi lolos (score >= threshold), backend hash NIM dan kirim transaksi `voteByRelayer` ke kontrak.
 - Kontrak cek 1 NIM = 1 vote, simpan suara on-chain → backend simpan receipt/tx hash (opsional).
 
 **6) Hasil & publikasi**
@@ -90,6 +92,8 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 - **Perbandingan kandidat (Versus)** di halaman mahasiswa (profil lengkap tanpa suara).
 - **Hasil resmi** dengan kartu kandidat berfoto + chart persebaran suara.
 - **Progress publik anonim** (tanpa identitas pemilih).
+- **Step-up verifikasi selfie sebelum vote** (capture kamera -> verifikasi -> submit vote).
+- **Face matching real open-source** memakai FastAPI + facenet-pytorch (MTCNN + FaceNet, CPU local) dengan mode `mock` sebagai fallback demo.
 - **Toast & modal UX** ditingkatkan (toast selalu di atas modal, modal auto-close saat sukses).
 - **Superadmin** untuk manajemen akun admin + audit log ringkas.
 
@@ -114,6 +118,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 ## Prasyarat
 - Node.js
 - PostgreSQL
+- Python 3.10+
 - Java 21 (untuk Besu)
 - Hyperledger Besu
 
@@ -239,12 +244,49 @@ Catatan: script deploy menulis alamat contract ke env frontend dan menjalankan s
    - `CAMPUS_SERVICE_PORT`
    - `CAMPUS_SERVICE_TOKEN`
    - `CAMPUS_PUBLIC_BASE_URL`
+   - `SIGNED_URL_SECRET`
+   - `SIGNED_URL_TTL_SECONDS`
 3) Jalankan service:
    - `npm run dev`
 4) Verifikasi health:
    - `GET http://localhost:4100/health`
 
 Catatan: data mahasiswa demo ada di `campus-service/src/students.js`, termasuk foto resmi statis di `campus-service/public/photos`.
+
+---
+
+## Setup Face Service (FastAPI + facenet-pytorch)
+1) Masuk folder `face-service`.
+2) Buat virtualenv dan install dependency:
+   - Disarankan Python `3.10` atau `3.11`.
+   - `python -m venv .venv`
+   - Linux/macOS: `source .venv/bin/activate`
+   - Windows PowerShell: `.venv\Scripts\Activate.ps1`
+   - Windows alternatif: `py -3.10 -m venv .venv`
+   - `pip install -r requirements.txt`
+3) Siapkan env `face-service/.env` dari `face-service/.env.example`:
+   - `FACE_SERVICE_PORT`
+   - `FACE_SERVICE_TOKEN`
+   - `FACE_SERVICE_MODEL_NAME`
+   - `FACE_SERVICE_TIMEOUT_MS`
+4) Jalankan service:
+   - `python src/run.py`
+5) Verifikasi health:
+   - `GET http://localhost:4200/health`
+
+Catatan:
+- Fase 1 belum memakai anti-spoof model khusus.
+- Untuk akurasi demo, foto resmi kampus sebaiknya `.jpg/.jpeg/.png` (bukan `.svg`).
+
+---
+
+## Urutan Menjalankan Service (Local Dev)
+1) `campus-service` (port 4100)
+2) `face-service` (port 4200)
+3) `backend` (port 4000)
+4) `frontend` (port 3000)
+
+Jika salah satu service di atas mati, alur vote-verification akan gagal (hard-block).
 
 ---
 
@@ -263,6 +305,11 @@ Catatan: data mahasiswa demo ada di `campus-service/src/students.js`, termasuk f
    - `CAMPUS_SERVICE_URL`
    - `CAMPUS_SERVICE_TOKEN`
    - `CAMPUS_SERVICE_TIMEOUT_MS`
+   - `FACE_PROVIDER_MODE`
+   - `FACE_PROVIDER_TIMEOUT_MS`
+   - `FACE_MATCH_THRESHOLD`
+   - `FACE_SERVICE_URL`
+   - `FACE_SERVICE_TOKEN`
 3) Jalankan Prisma:
    - `npm run db:migrate`
    - `npm run db:generate`
@@ -282,8 +329,46 @@ Catatan: data mahasiswa demo ada di `campus-service/src/students.js`, termasuk f
    - `NEXT_PUBLIC_BACKEND_URL`
    - `NEXT_PUBLIC_VOTING_ADDRESS`
    - `NEXT_PUBLIC_STUDENT_MODE=relayer`
+   - `NEXT_PUBLIC_FACE_PROVIDER_MODE=model`
 3) Jalankan frontend:
    - `npm run dev`
+
+---
+
+## Quick Start (Automated Scripts)
+Untuk menghindari menjalankan banyak command manual, gunakan script otomatis di folder `scripts/`.
+
+### PowerShell (Windows)
+```powershell
+.\scripts\start-all.ps1
+```
+
+Opsi:
+- `-DevMode` -> backend/frontend jalan dalam mode dev.
+- `-SetupOnly` -> hanya install/build/deploy, tanpa start service.
+- `-SkipContracts` -> lewati deploy contract.
+- `-SkipBuild` -> lewati build backend/frontend.
+- `-Network besuLocal` -> pilih network hardhat untuk deploy.
+
+### Bash (Linux/macOS/WSL)
+```bash
+./scripts/start-all.sh
+```
+
+Opsi (env):
+- `DEV_MODE=1` -> backend/frontend mode dev.
+- `SETUP_ONLY=1` -> hanya setup, tanpa start service.
+- `SKIP_CONTRACTS=1` -> lewati deploy contract.
+- `SKIP_BUILD=1` -> lewati build backend/frontend.
+- `NETWORK=besuLocal` -> pilih network hardhat untuk deploy.
+
+Catatan:
+- Script PowerShell membuka service di jendela terminal terpisah.
+- Script Bash menjalankan service di background dan menulis log ke:
+  - `.run-campus-service.log`
+  - `.run-face-service.log`
+  - `.run-backend.log`
+  - `.run-frontend.log`
 
 ---
 
@@ -305,5 +390,28 @@ Catatan: data mahasiswa demo ada di `campus-service/src/students.js`, termasuk f
 ## Troubleshooting
 - Pastikan `SIGNER_PRIVATE_KEY` & `VOTING_CONTRACT_ADDRESS` valid.
 - Pastikan `campus-service` aktif sebelum login mahasiswa di VOTERA.
+- Pastikan `face-service` aktif jika `FACE_PROVIDER_MODE=model`.
+- Pastikan `FACE_SERVICE_TOKEN` di `backend/.env` sama persis dengan `FACE_SERVICE_TOKEN` di `face-service/.env`.
 - Jika ABI berubah, jalankan `contracts/scripts/sync-abi.mjs`.
 - `db:seed` backend hanya menyiapkan record lokal; password login mahasiswa tetap mengikuti data di `campus-service`.
+
+---
+
+## Catatan Penting (Keterbatasan Saat Ini)
+- Verifikasi wajah fase saat ini belum memakai anti-spoofing dedicated (belum ada deteksi foto/video replay attack tingkat lanjut).
+- Akurasi verifikasi sangat bergantung pada kualitas foto resmi kampus dan kualitas kamera/device mahasiswa.
+- `face-service` berjalan CPU-only, sehingga latensi bisa naik saat request verifikasi ramai.
+- Arsitektur 4 validator + 1 RPC sudah mendekati real-case, tetapi masih single-machine local untuk demo, belum high availability production.
+- Beberapa konfigurasi keamanan (token service, private key relayer) masih berbasis `.env`; untuk production sebaiknya dipindah ke secret manager.
+- Saat `campus-service` atau `face-service` down, proses vote akan terblokir (hard-block) sesuai kebijakan keamanan saat ini.
+
+---
+
+## Pengembangan Lanjutan
+- Tambahkan anti-spoofing model (passive/active liveness) untuk menurunkan risiko serangan replay.
+- Tambahkan rate limiting, lockout policy, dan anomaly detection pada endpoint verifikasi/voting.
+- Pindahkan penyimpanan secret ke vault/KMS dan terapkan key rotation untuk signer relayer.
+- Tambahkan observability production: metrics, tracing, dashboard SLO, dan alert otomatis lintas service.
+- Siapkan deployment multi-node Besu di host terpisah (bukan satu laptop), plus backup dan disaster recovery.
+- Tingkatkan auditability: dashboard verifikasi (success/fail reason code), report keamanan, dan export log terstruktur.
+- Pertimbangkan mode multi-tenant organisasi (BEM/HIMA/UKM) dengan isolasi data dan role yang lebih granular.

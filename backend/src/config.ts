@@ -25,6 +25,19 @@ export const CAMPUS_SERVICE_TIMEOUT_MS = Math.max(
   1000,
   Number(process.env.CAMPUS_SERVICE_TIMEOUT_MS ?? "8000")
 );
+export const FACE_PROVIDER_MODE = (process.env.FACE_PROVIDER_MODE ?? "mock").toLowerCase();
+export const FACE_PROVIDER_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.FACE_PROVIDER_TIMEOUT_MS ?? "10000")
+);
+export const FACE_MATCH_THRESHOLD = Math.max(
+  0.1,
+  Math.min(1, Number(process.env.FACE_MATCH_THRESHOLD ?? "0.82"))
+);
+export const FACE_SERVICE_URL =
+  process.env.FACE_SERVICE_URL || "http://localhost:4200";
+export const FACE_SERVICE_TOKEN =
+  process.env.FACE_SERVICE_TOKEN || "change-this-face-token";
 
 export const AUTO_CLOSE_ENABLED =
   (process.env.AUTO_CLOSE_ENABLED ?? "true").toLowerCase() === "true";

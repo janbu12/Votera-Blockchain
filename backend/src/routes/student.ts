@@ -2,8 +2,10 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { encodePacked, keccak256 } from "viem";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import {
+  FACE_MATCH_THRESHOLD,
   JWT_SECRET,
   VOTING_CONTRACT_ADDRESS,
 } from "../config";
@@ -14,13 +16,75 @@ import { requireAuth, AuthRequest } from "../middleware/auth";
 import { ensureVerifiedStudent } from "../services/student";
 import {
   campusChangePassword,
+  type CampusFaceReference,
+  campusGetFaceReference,
   campusGetStudent,
   campusLogin,
 } from "../services/campus";
+import { type FaceVerificationDecision, verifyFaceForVote } from "../services/faceProvider";
 import logger from "../logger";
 
 const router = express.Router();
 const paramValue = (value: string | string[]) => (Array.isArray(value) ? value[0] : value);
+
+function mapFaceRejectReason(reasonCode: string | null) {
+  if (reasonCode === "LIVENESS_FAIL") return "Liveness check gagal";
+  if (reasonCode === "SELFIE_REQUIRED") {
+    return "Selfie wajib diambil sebelum vote";
+  }
+  if (reasonCode === "NO_FACE_SELFIE") {
+    return "Wajah tidak terdeteksi pada selfie";
+  }
+  if (reasonCode === "MULTI_FACE_SELFIE") {
+    return "Selfie harus berisi satu wajah saja";
+  }
+  if (reasonCode === "NO_FACE_REFERENCE") {
+    return "Wajah tidak terdeteksi pada foto resmi kampus";
+  }
+  if (reasonCode === "MULTI_FACE_REFERENCE") {
+    return "Foto resmi kampus memuat lebih dari satu wajah";
+  }
+  if (reasonCode === "BAD_IMAGE") {
+    return "Format gambar tidak valid";
+  }
+  if (reasonCode === "REFERENCE_FETCH_FAILED") {
+    return "Foto resmi kampus tidak dapat diakses";
+  }
+  if (reasonCode === "LOW_SCORE") {
+    return "Wajah tidak cocok dengan foto resmi";
+  }
+  return "Wajah tidak cocok dengan foto resmi";
+}
+
+function requestClientIp(req: express.Request) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() || null;
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0]?.split(",")[0]?.trim() || null;
+  }
+  return req.socket.remoteAddress ?? null;
+}
+
+async function createVoteVerificationRecord(
+  data: Prisma.StudentVoteVerificationUncheckedCreateInput
+) {
+  try {
+    return await prisma.studentVoteVerification.create({
+      data,
+      select: { id: true },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
 
 router.post("/auth/login", async (req, res) => {
   const nim = String(req.body?.nim ?? "").trim();
@@ -246,6 +310,266 @@ router.post("/auth/vote-relay", requireAuth, async (req: AuthRequest, res) => {
       },
     });
     return res.json({ ok: true, hash });
+  } catch {
+    return res.status(500).json({ ok: false, reason: "Gagal submit vote" });
+  }
+});
+
+router.post("/auth/vote-verify", requireAuth, async (req: AuthRequest, res) => {
+  if (!walletClient || !VOTING_CONTRACT_ADDRESS) {
+    return res.status(500).json({ ok: false, reason: "Relayer not configured" });
+  }
+  if (!(await ensureVerifiedStudent(req, res))) return;
+
+  const electionIdRaw = req.body?.electionId;
+  const candidateIdRaw = req.body?.candidateId;
+  const faceAssertionToken = String(req.body?.faceAssertionToken ?? "").trim();
+  const selfieDataUrl =
+    typeof req.body?.selfieDataUrl === "string" ? req.body.selfieDataUrl : undefined;
+
+  if (!electionIdRaw || !candidateIdRaw || !faceAssertionToken) {
+    return res.status(400).json({ ok: false, reason: "Invalid payload" });
+  }
+
+  let electionId: bigint;
+  let candidateId: bigint;
+  try {
+    electionId = BigInt(electionIdRaw);
+    candidateId = BigInt(candidateIdRaw);
+  } catch {
+    return res.status(400).json({ ok: false, reason: "Invalid id" });
+  }
+
+  const nimHash = keccak256(new TextEncoder().encode(req.user!.nim));
+  const assertionTokenHash = keccak256(new TextEncoder().encode(faceAssertionToken));
+  const ip = requestClientIp(req);
+  const userAgentHeader = req.headers["user-agent"];
+  const userAgent = Array.isArray(userAgentHeader)
+    ? userAgentHeader.join(", ")
+    : userAgentHeader ?? null;
+
+  logger.info(
+    {
+      event: "vote.verify.requested",
+      nim: req.user!.nim,
+      electionId: electionId.toString(),
+      candidateId: candidateId.toString(),
+      ip,
+    },
+      "vote verification requested"
+  );
+
+  const replayFound = await prisma.studentVoteVerification.findFirst({
+    where: { assertionTokenHash },
+    select: { id: true },
+  });
+  if (replayFound) {
+    logger.warn(
+      {
+        event: "vote.verify.replay_rejected",
+        nim: req.user!.nim,
+        electionId: electionId.toString(),
+        candidateId: candidateId.toString(),
+        verificationId: replayFound.id,
+      },
+      "replayed face assertion token rejected"
+    );
+    return res.status(409).json({
+      ok: false,
+      reason: "Token verifikasi sudah digunakan",
+      verificationId: replayFound.id,
+    });
+  }
+
+  try {
+    const alreadyVoted = await publicClient.readContract({
+      address: VOTING_CONTRACT_ADDRESS as `0x${string}`,
+      abi: VOTING_READ_ABI,
+      functionName: "hasVotedNim",
+      args: [electionId, nimHash],
+    });
+    if (alreadyVoted) {
+      return res.status(409).json({ ok: false, reason: "NIM sudah voting" });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, reason: "Gagal cek status vote" });
+  }
+
+  let reference: CampusFaceReference | null = null;
+  try {
+    reference = await campusGetFaceReference(req.user!.nim);
+  } catch (err) {
+    logger.error({ err, nim: req.user!.nim }, "vote.verify.reference_error");
+    return res
+      .status(503)
+      .json({ ok: false, reason: "Gagal mengambil foto resmi dari campus service" });
+  }
+
+  if (!reference) {
+    logger.warn(
+      {
+        event: "vote.verify.reference_missing",
+        nim: req.user!.nim,
+        electionId: electionId.toString(),
+      },
+      "official photo missing"
+    );
+    const rejected = await createVoteVerificationRecord({
+      studentId: req.user!.id,
+      nim: req.user!.nim,
+      electionId,
+      candidateId,
+      provider: "face-reference",
+      providerRequestId: null,
+      livenessPassed: false,
+      faceMatchScore: null,
+      decision: "REJECTED",
+      reasonCode: "NO_REFERENCE_PHOTO",
+      ip,
+      userAgent,
+      assertionTokenHash,
+    });
+    if (!rejected) {
+      return res.status(409).json({
+        ok: false,
+        reason: "Token verifikasi sudah digunakan",
+      });
+    }
+    return res.status(404).json({
+      ok: false,
+      reason: "Foto resmi kampus tidak ditemukan",
+      verificationId: rejected.id,
+    });
+  }
+
+  let decision: FaceVerificationDecision;
+  try {
+    decision = await verifyFaceForVote({
+      nim: req.user!.nim,
+      faceAssertionToken,
+      referenceUrl: reference.referenceUrl,
+      selfieDataUrl,
+    });
+  } catch (err) {
+    logger.error(
+      {
+        err,
+        event: "vote.verify.provider_fail",
+        nim: req.user!.nim,
+        electionId: electionId.toString(),
+      },
+      "face provider verification failed"
+    );
+    const rejected = await createVoteVerificationRecord({
+      studentId: req.user!.id,
+      nim: req.user!.nim,
+      electionId,
+      candidateId,
+      provider: "face-provider",
+      providerRequestId: null,
+      livenessPassed: false,
+      faceMatchScore: null,
+      decision: "REJECTED",
+      reasonCode: "PROVIDER_ERROR",
+      ip,
+      userAgent,
+      assertionTokenHash,
+    });
+    if (!rejected) {
+      return res.status(409).json({
+        ok: false,
+        reason: "Token verifikasi sudah digunakan",
+      });
+    }
+    return res.status(503).json({
+      ok: false,
+      reason: "Layanan verifikasi wajah tidak tersedia",
+      verificationId: rejected.id,
+    });
+  }
+
+  logger.info(
+    {
+      event: decision.approved ? "vote.verify.provider_ok" : "vote.verify.rejected",
+      nim: req.user!.nim,
+      electionId: electionId.toString(),
+      candidateId: candidateId.toString(),
+      provider: decision.provider,
+      providerRequestId: decision.providerRequestId,
+      livenessPassed: decision.livenessPassed,
+      faceMatchScore: decision.faceMatchScore,
+      reasonCode: decision.reasonCode,
+      modelVersion: decision.modelVersion ?? null,
+    },
+    "face provider verification evaluated"
+  );
+
+  const verification = await createVoteVerificationRecord({
+    studentId: req.user!.id,
+    nim: req.user!.nim,
+    electionId,
+    candidateId,
+    provider: decision.provider,
+    providerRequestId: decision.providerRequestId,
+    livenessPassed: decision.livenessPassed,
+    faceMatchScore: decision.faceMatchScore,
+    decision: decision.approved ? "APPROVED" : "REJECTED",
+    reasonCode: decision.reasonCode,
+    ip,
+    userAgent,
+    assertionTokenHash,
+  });
+  if (!verification) {
+    return res.status(409).json({
+      ok: false,
+      reason: "Token verifikasi sudah digunakan",
+    });
+  }
+
+  if (!decision.approved) {
+    const reason = mapFaceRejectReason(decision.reasonCode);
+    return res.status(403).json({
+      ok: false,
+      reason,
+      verificationId: verification.id,
+      reasonCode: decision.reasonCode,
+      faceMatchScore: decision.faceMatchScore,
+      threshold: FACE_MATCH_THRESHOLD,
+    });
+  }
+
+  try {
+    const hash = await walletClient.writeContract({
+      chain: null,
+      address: VOTING_CONTRACT_ADDRESS as `0x${string}`,
+      abi: VOTING_WRITE_ABI,
+      functionName: "voteByRelayer",
+      args: [electionId, candidateId, nimHash],
+    });
+    await prisma.voteReceipt.upsert({
+      where: { studentId_electionId: { studentId: req.user!.id, electionId } },
+      update: { candidateId, txHash: hash, mode: "relayer" },
+      create: {
+        studentId: req.user!.id,
+        electionId,
+        candidateId,
+        txHash: hash,
+        mode: "relayer",
+      },
+    });
+    logger.info(
+      {
+        event: "vote.verify.approved",
+        nim: req.user!.nim,
+        electionId: electionId.toString(),
+        candidateId: candidateId.toString(),
+        verificationId: verification.id,
+        txHash: hash,
+        modelVersion: decision.modelVersion ?? null,
+      },
+      "vote relay submitted after verification"
+    );
+    return res.json({ ok: true, txHash: hash, hash, verificationId: verification.id });
   } catch {
     return res.status(500).json({ ok: false, reason: "Gagal submit vote" });
   }

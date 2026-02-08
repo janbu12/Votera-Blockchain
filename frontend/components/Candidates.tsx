@@ -13,6 +13,7 @@ import { VOTING_ABI, VOTING_ADDRESS } from "@/lib/contract";
 import { formatTxToast } from "@/lib/tx";
 import { useToast } from "@/components/ToastProvider";
 import { Modal } from "@/components/Modal";
+import { VoteVerificationModal } from "@/components/student/VoteVerificationModal";
 
 export function Candidates({
   electionId,
@@ -561,6 +562,7 @@ function CandidateRow({
     photoUrl?: string | null;
   } | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [isVerificationOpen, setIsVerificationOpen] = useState(false);
 
   useEffect(() => {
     if (isVoteSuccess && activeHash) {
@@ -695,108 +697,153 @@ function CandidateRow({
   const [cid, name, voteCount, isActive] = data;
   if (!isActive) return null;
   const disabled =
-    !isOpen || alreadyVoted || isPending || isConfirming || isSigning;
+    !isOpen ||
+    alreadyVoted ||
+    isPending ||
+    isConfirming ||
+    isSigning ||
+    isVerificationOpen;
 
-    return (
-      <li className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={`Foto ${name}`}
-                className="h-12 w-12 rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[10px] text-slate-400">
-                Foto
-              </div>
-            )}
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{name}</p>
-              <p className="text-xs text-slate-500">Profil & visi misi kandidat.</p>
+  const submitVerifiedVote = async (payload: {
+    faceAssertionToken: string;
+    selfieDataUrl?: string;
+  }) => {
+    setIsSigning(true);
+    try {
+      const res = await fetch("/api/student/vote-verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          electionId: electionId.toString(),
+          candidateId: cid.toString(),
+          faceAssertionToken: payload.faceAssertionToken,
+          selfieDataUrl: payload.selfieDataUrl,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
+            push("NIM sudah voting", "info");
+            onNimVoted();
+            return {
+              ok: false,
+              reason: data.reason as string,
+              faceMatchScore:
+                typeof data?.faceMatchScore === "number"
+                  ? data.faceMatchScore
+                  : undefined,
+              threshold:
+                typeof data?.threshold === "number" ? data.threshold : undefined,
+            };
+          }
+          if (res.status === 401) {
+            push("Login mahasiswa diperlukan", "info");
+          } else {
+            push(data?.reason ?? "Gagal verifikasi vote", "error");
+          }
+          return {
+            ok: false,
+            reason: data?.reason ?? "Gagal verifikasi vote",
+            faceMatchScore:
+              typeof data?.faceMatchScore === "number"
+                ? data.faceMatchScore
+                : undefined,
+            threshold: typeof data?.threshold === "number" ? data.threshold : undefined,
+          };
+        }
+        const txHash = (data?.txHash ?? data?.hash) as `0x${string}` | undefined;
+        if (!txHash) {
+          push("Vote berhasil tetapi tx hash tidak tersedia", "error");
+          return { ok: false, reason: "tx hash tidak tersedia" };
+        }
+        setRelayHash(txHash);
+        return { ok: true };
+      } catch {
+        push("Gagal menghubungi backend", "error");
+        return { ok: false, reason: "Gagal menghubungi backend" };
+    } finally {
+      setIsSigning(false);
+    }
+  };
+
+  return (
+    <li className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {photoUrl ? (
+            <img
+              src={photoUrl}
+              alt={`Foto ${name}`}
+              className="h-12 w-12 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[10px] text-slate-400">
+              Foto
             </div>
+          )}
+          <div>
+            <p className="text-sm font-semibold text-slate-900">{name}</p>
+            <p className="text-xs text-slate-500">Profil & visi misi kandidat.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={openProfile}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-white"
-            >
-              Lihat Profil
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={openProfile}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-white"
+          >
+            Lihat Profil
           </button>
           <button
             onClick={async () => {
+              if (!useWalletMode) {
+                setIsVerificationOpen(true);
+                return;
+              }
               setIsSigning(true);
               try {
-                if (useWalletMode) {
-                  if (!address) {
-                    push("Wallet belum terhubung", "info");
-                    return;
-                  }
-                  const res = await fetch("/api/student/vote-signature", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      electionId: electionId.toString(),
-                      voterAddress: address,
-                    }),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) {
-                    if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
-                      push("NIM sudah voting", "info");
-                      onNimVoted();
-                      return;
-                    }
-                    if (res.status === 401) {
-                      push("Login mahasiswa diperlukan", "info");
-                    } else {
-                      push(data?.reason ?? "Gagal membuat signature", "error");
-                    }
-                    return;
-                  }
-
-                  writeContract({
-                    address: VOTING_ADDRESS,
-                    abi: VOTING_ABI,
-                    functionName: "vote",
-                    args: [
-                      electionId,
-                      cid,
-                      data.nimHash,
-                      BigInt(data.deadline),
-                      data.signature,
-                    ],
-                  });
-                } else {
-                  const res = await fetch("/api/student/vote-relay", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      electionId: electionId.toString(),
-                      candidateId: cid.toString(),
-                    }),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) {
-                    if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
-                      push("NIM sudah voting", "info");
-                      onNimVoted();
-                      return;
-                    }
-                    if (res.status === 401) {
-                      push("Login mahasiswa diperlukan", "info");
-                    } else {
-                      push(data?.reason ?? "Gagal submit vote", "error");
-                    }
-                    return;
-                  }
-                  setRelayHash(data.hash as `0x${string}`);
+                if (!address) {
+                  push("Wallet belum terhubung", "info");
+                  return;
                 }
+                const res = await fetch("/api/student/vote-signature", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    electionId: electionId.toString(),
+                    voterAddress: address,
+                  }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  if (data?.reason?.toLowerCase?.().includes("nim sudah voting")) {
+                    push("NIM sudah voting", "info");
+                    onNimVoted();
+                    return;
+                  }
+                  if (res.status === 401) {
+                    push("Login mahasiswa diperlukan", "info");
+                  } else {
+                    push(data?.reason ?? "Gagal membuat signature", "error");
+                  }
+                  return;
+                }
+
+                writeContract({
+                  address: VOTING_ADDRESS,
+                  abi: VOTING_ABI,
+                  functionName: "vote",
+                  args: [
+                    electionId,
+                    cid,
+                    data.nimHash,
+                    BigInt(data.deadline),
+                    data.signature,
+                  ],
+                });
               } catch {
                 push("Gagal menghubungi backend", "error");
               } finally {
@@ -821,6 +868,8 @@ function CandidateRow({
               ? "Ditutup"
               : alreadyVoted
               ? "Sudah Voting"
+              : isVerificationOpen
+              ? "Verifikasi..."
               : isSigning
               ? useWalletMode
                 ? "Menyiapkan signature..."
@@ -916,6 +965,12 @@ function CandidateRow({
           </div>
         </div>
       </Modal>
+      <VoteVerificationModal
+        open={isVerificationOpen}
+        onClose={() => setIsVerificationOpen(false)}
+        candidateName={name}
+        onSubmit={submitVerifiedVote}
+      />
     </li>
   );
 }
