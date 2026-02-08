@@ -149,14 +149,6 @@ export function AdminDashboard() {
       </div>
     );
   }
-  if (!count || count === BigInt(0)) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-        Belum ada event.
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
@@ -295,21 +287,27 @@ export function AdminDashboard() {
 
       <h2 className="text-lg font-semibold text-slate-900">Event Berjalan</h2>
       <div className="space-y-4">
-        {electionIds.map((id) => (
-          <RunningElectionCard
-            key={id.toString()}
-            electionId={id}
-            verifiedCount={stats?.verifiedCount ?? null}
-            totalStudents={stats?.totalStudents ?? null}
-            onOpenChange={(isOpen) =>
-              setOpenMap((prev) => {
-                const key = id.toString();
-                if (prev[key] === isOpen) return prev;
-                return { ...prev, [key]: isOpen };
-              })
-            }
-          />
-        ))}
+        {electionIds.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
+            Belum ada event.
+          </div>
+        ) : (
+          electionIds.map((id) => (
+            <RunningElectionCard
+              key={id.toString()}
+              electionId={id}
+              verifiedCount={stats?.verifiedCount ?? null}
+              totalStudents={stats?.totalStudents ?? null}
+              onOpenChange={(isOpen) =>
+                setOpenMap((prev) => {
+                  const key = id.toString();
+                  if (prev[key] === isOpen) return prev;
+                  return { ...prev, [key]: isOpen };
+                })
+              }
+            />
+          ))
+        )}
       </div>
     </div>
   );

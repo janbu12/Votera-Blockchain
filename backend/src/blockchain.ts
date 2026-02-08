@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { RPC_URL, SIGNER_PRIVATE_KEY, VOTING_CONTRACT_ADDRESS } from "./config";
+import logger from "./logger";
 
 export const signerAccount = SIGNER_PRIVATE_KEY
   ? privateKeyToAccount(SIGNER_PRIVATE_KEY as `0x${string}`)
@@ -18,7 +19,7 @@ export const walletClient = signerAccount
   : null;
 
 if (!SIGNER_PRIVATE_KEY || !VOTING_CONTRACT_ADDRESS) {
-  console.warn(
+  logger.warn(
     "Missing SIGNER_PRIVATE_KEY or VOTING_CONTRACT_ADDRESS in env. Signature endpoint will fail."
   );
 }

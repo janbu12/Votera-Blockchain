@@ -27,14 +27,14 @@ function StudentLayoutContent({ children }: { children: React.ReactNode }) {
   const {
     loading,
     nim,
+    campusName,
+    campusOfficialPhotoUrl,
     mustChangePassword,
     verificationStatus,
     verificationReason,
     uploading,
     uploadMsg,
-    cardPreview,
     selfiePreview,
-    onCardFileChange,
     onSelfieFileChange,
     uploadVerification,
     newPassword,
@@ -135,12 +135,12 @@ function StudentLayoutContent({ children }: { children: React.ReactNode }) {
                       <VerificationCard
                         status={safeStatus}
                         reason={verificationReason}
+                        campusName={campusName}
+                        campusOfficialPhotoUrl={campusOfficialPhotoUrl}
                         uploading={uploading}
                         uploadMsg={uploadMsg}
                         onUpload={uploadVerification}
-                        onCardFileChange={onCardFileChange}
                         onSelfieFileChange={onSelfieFileChange}
-                        cardPreview={cardPreview}
                         selfiePreview={selfiePreview}
                       />
                     )}

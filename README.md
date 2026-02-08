@@ -26,19 +26,21 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 ---
 
 ## Arsitektur Singkat
+- `campus-service/` — service data mahasiswa kampus (auth mahasiswa + foto resmi).
 - `contracts/` — smart contract (Hardhat) untuk multi-event voting.
-- `backend/` — Express + Prisma + PostgreSQL (auth mahasiswa, verifikasi identitas, relayer transaksi).
+- `backend/` — Express + Prisma + PostgreSQL (integrasi campus service, verifikasi selfie, relayer transaksi).
 - `frontend/` — Next.js + wagmi untuk UI admin/mahasiswa.
 
 ---
 
 ## Alur Data (End-to-End)
 **1) Autentikasi & sesi**
-- Mahasiswa login via backend (NIM + password) → backend buat session/token → frontend simpan session.
+- Mahasiswa login via backend (NIM + password) → backend validasi ke `campus-service` → backend buat session/token → frontend simpan session.
 - Admin/Superadmin login → backend verifikasi credential → token admin.
 
 **2) Verifikasi identitas mahasiswa**
-- Mahasiswa upload foto kartu & selfie → backend simpan file + status verifikasi `PENDING` di DB.
+- Mahasiswa upload selfie → backend simpan file + status verifikasi `PENDING` di DB.
+- Foto resmi mahasiswa diambil dari `campus-service` sebagai pembanding saat review admin.
 - Admin review di `/admin/verifications` → backend update status (`VERIFIED/REJECTED`) + audit log.
 - Jika `VERIFIED`, mahasiswa boleh ganti password dan membuka akses menu lainnya.
 
@@ -69,7 +71,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 **Admin**
 - Kelola event: buat event, jadwal, open/close, mode manual/production.
 - Kelola kandidat: tambah, edit, hide kandidat + foto & profil.
-- Verifikasi mahasiswa (upload kartu & selfie).
+- Verifikasi mahasiswa (foto resmi kampus vs selfie).
 - Audit log admin + ringkasan aktivitas.
 - Hasil pemilihan: finalize & publish, export CSV/XLSX.
 - Monitoring RPC/relayer + saldo signer.
@@ -77,7 +79,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 
 **Mahasiswa**
 - Login NIM + password (wajib ganti password setelah diverifikasi).
-- Upload kartu mahasiswa & selfie untuk verifikasi.
+- Upload selfie untuk verifikasi (foto resmi dari kampus dipakai sebagai acuan).
 - Voting tanpa Metamask (mode relayer).
 - Riwayat voting + status tx hash (jika tersedia).
 
@@ -230,6 +232,22 @@ Catatan: script deploy menulis alamat contract ke env frontend dan menjalankan s
 
 ---
 
+## Setup Campus Service
+1) Masuk folder `campus-service`, install deps:
+   - `npm install`
+2) Siapkan env `campus-service/.env` dari `campus-service/.env.example`:
+   - `CAMPUS_SERVICE_PORT`
+   - `CAMPUS_SERVICE_TOKEN`
+   - `CAMPUS_PUBLIC_BASE_URL`
+3) Jalankan service:
+   - `npm run dev`
+4) Verifikasi health:
+   - `GET http://localhost:4100/health`
+
+Catatan: data mahasiswa demo ada di `campus-service/src/students.js`, termasuk foto resmi statis di `campus-service/public/photos`.
+
+---
+
 ## Setup Backend
 1) Masuk folder `backend`, install deps:
    - `npm install`
@@ -242,6 +260,9 @@ Catatan: script deploy menulis alamat contract ke env frontend dan menjalankan s
    - `SIGNER_PRIVATE_KEY` (wallet relayer)
    - `VOTING_CONTRACT_ADDRESS`
    - `RPC_URL`
+   - `CAMPUS_SERVICE_URL`
+   - `CAMPUS_SERVICE_TOKEN`
+   - `CAMPUS_SERVICE_TIMEOUT_MS`
 3) Jalankan Prisma:
    - `npm run db:migrate`
    - `npm run db:generate`
@@ -276,12 +297,13 @@ Catatan: script deploy menulis alamat contract ke env frontend dan menjalankan s
 
 **Mahasiswa**
 - Login NIM + password.
-- Upload kartu & selfie untuk verifikasi.
+- Upload selfie untuk verifikasi (foto resmi dari kampus ditarik otomatis).
 - Setelah diverifikasi, ganti password.
 - Masuk event aktif dan lakukan voting.
 ---
 
 ## Troubleshooting
 - Pastikan `SIGNER_PRIVATE_KEY` & `VOTING_CONTRACT_ADDRESS` valid.
+- Pastikan `campus-service` aktif sebelum login mahasiswa di VOTERA.
 - Jika ABI berubah, jalankan `contracts/scripts/sync-abi.mjs`.
-- Reset seed mahasiswa mengembalikan password ke `mahasiswa123`.
+- `db:seed` backend hanya menyiapkan record lokal; password login mahasiswa tetap mengikuti data di `campus-service`.

@@ -4,6 +4,7 @@ import { VOTING_CONTRACT_ADDRESS } from "../config";
 import { VOTING_ADMIN_ABI } from "../abi";
 import { publicClient } from "../blockchain";
 import { toPublicPath } from "../uploads";
+import logger from "../logger";
 
 const router = express.Router();
 
@@ -50,7 +51,7 @@ router.get("/public/results", async (_req, res) => {
       ),
     });
   } catch (err) {
-    console.error("public results failed", err);
+    logger.error({ err }, "public results failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat hasil" });
   }
 });
@@ -97,7 +98,7 @@ router.get("/public/results/:electionId", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("public results detail failed", err);
+    logger.error({ err }, "public results detail failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat hasil" });
   }
 });
@@ -170,7 +171,7 @@ router.get("/public/progress", async (_req, res) => {
     }
     return res.json({ ok: true, items });
   } catch (err) {
-    console.error("public progress failed", err);
+    logger.error({ err }, "public progress failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat progress" });
   }
 });

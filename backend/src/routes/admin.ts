@@ -15,12 +15,14 @@ import { publicClient, signerAccount, walletClient } from "../blockchain";
 import { candidateUpload, toPublicPath } from "../uploads";
 import { requireAdmin, requireSuperadmin, AdminRequest } from "../middleware/auth";
 import { logAdminAction } from "../services/admin";
+import { campusGetStudent } from "../services/campus";
 import {
   toCsvRow,
   markElectionOpened,
   isElectionLocked,
   fetchElectionSnapshot,
 } from "../services/election";
+import logger from "../logger";
 
 const router = express.Router();
 const paramValue = (value: string | string[]) => (Array.isArray(value) ? value[0] : value);
@@ -86,7 +88,7 @@ router.post("/admin/users", requireAdmin, requireSuperadmin, async (req, res) =>
       user: { id: user.id, username: user.username, role: user.role, isActive: user.isActive },
     });
   } catch (err) {
-    console.error("admin create failed", err);
+    logger.error({ err }, "admin create failed");
     return res.status(400).json({ ok: false, reason: "Gagal membuat admin" });
   }
 });
@@ -110,7 +112,7 @@ router.post(
       await logAdminAction(req, "admin.reset", { username: user.username });
       return res.json({ ok: true });
     } catch (err) {
-      console.error("admin reset failed", err);
+      logger.error({ err }, "admin reset failed");
       return res.status(400).json({ ok: false, reason: "Gagal reset password" });
     }
   }
@@ -140,7 +142,7 @@ router.post(
       });
       return res.json({ ok: true, isActive: updated.isActive });
     } catch (err) {
-      console.error("admin toggle failed", err);
+      logger.error({ err }, "admin toggle failed");
       return res.status(400).json({ ok: false, reason: "Gagal ubah status admin" });
     }
   }
@@ -148,6 +150,7 @@ router.post(
 
 router.get("/admin/verifications", requireAdmin, async (req, res) => {
   const status = String(req.query.status ?? "PENDING").toUpperCase();
+  const includeCampus = String(req.query.includeCampus ?? "1") !== "0";
   const rows = await prisma.student.findMany({
     where: {
       verificationStatus: status === "ALL" ? undefined : (status as any),
@@ -157,13 +160,32 @@ router.get("/admin/verifications", requireAdmin, async (req, res) => {
       nim: true,
       verificationStatus: true,
       verificationSubmittedAt: true,
-      verificationCardPath: true,
       verificationSelfiePath: true,
       verificationRejectReason: true,
     },
     orderBy: { verificationSubmittedAt: "desc" },
   });
-  return res.json({ ok: true, items: rows });
+
+  if (!includeCampus) {
+    return res.json({ ok: true, items: rows });
+  }
+
+  const items = await Promise.all(
+    rows.map(async (row) => {
+      let campusStudent = null;
+      try {
+        campusStudent = await campusGetStudent(row.nim);
+      } catch {
+        campusStudent = null;
+      }
+      return {
+        ...row,
+        campusName: campusStudent?.name ?? null,
+        campusOfficialPhotoUrl: campusStudent?.officialPhotoUrl ?? null,
+      };
+    })
+  );
+  return res.json({ ok: true, items });
 });
 
 router.get("/admin/stats", requireAdmin, async (_req, res) => {
@@ -188,7 +210,7 @@ router.get("/admin/stats", requireAdmin, async (_req, res) => {
       },
     });
   } catch (err) {
-    console.error("admin stats failed", err);
+    logger.error({ err }, "admin stats failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat statistik" });
   }
 });
@@ -219,7 +241,7 @@ router.get("/admin/voters/:electionId", requireAdmin, async (req: AdminRequest, 
       voters,
     });
   } catch (err) {
-    console.error("admin voters failed", err);
+    logger.error({ err }, "admin voters failed");
     return res.status(400).json({ ok: false, reason: "Gagal memuat daftar pemilih" });
   }
 });
@@ -264,7 +286,7 @@ router.post("/admin/candidates/profile", requireAdmin, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("candidate profile save failed", err);
+    logger.error({ err }, "candidate profile save failed");
     return res.status(400).json({ ok: false, reason: "Gagal menyimpan profil" });
   }
 });
@@ -301,7 +323,7 @@ router.post(
         photoUrl: toPublicPath(profile.photoPath),
       });
     } catch (err) {
-      console.error("candidate photo upload failed", err);
+      logger.error({ err }, "candidate photo upload failed");
       return res.status(400).json({ ok: false, reason: "Gagal upload foto" });
     }
   }
@@ -332,7 +354,8 @@ router.get(
             }
           : null,
       });
-    } catch {
+    } catch (err) {
+      logger.error({ err }, "candidate profile load failed");
       return res.status(400).json({ ok: false, reason: "Gagal memuat profil" });
     }
   }
@@ -395,7 +418,7 @@ router.post("/admin/elections/schedule", requireAdmin, async (req, res) => {
     });
     return res.json({ ok: true, mode: "manual" });
   } catch (err) {
-    console.error("schedule save failed", err);
+    logger.error({ err }, "schedule save failed");
     return res.status(400).json({ ok: false, reason: "Gagal menyimpan jadwal" });
   }
 });
@@ -415,7 +438,7 @@ router.get("/admin/elections/state/:electionId", requireAdmin, async (req, res) 
       },
     });
   } catch (err) {
-    console.error("election state failed", err);
+    logger.error({ err }, "election state failed");
     return res.status(400).json({ ok: false, reason: "Gagal memuat status" });
   }
 });
@@ -433,7 +456,7 @@ router.get("/admin/audit", requireAdmin, async (req: AdminRequest, res) => {
     });
     return res.json({ ok: true, items });
   } catch (err) {
-    console.error("audit log failed", err);
+    logger.error({ err }, "audit log failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat audit log" });
   }
 });
@@ -493,7 +516,7 @@ router.get("/admin/audit/summary", requireAdmin, async (_req: AdminRequest, res)
       },
     });
   } catch (err) {
-    console.error("audit summary failed", err);
+    logger.error({ err }, "audit summary failed");
     return res.status(500).json({ ok: false, reason: "Gagal memuat ringkasan audit" });
   }
 });
@@ -522,7 +545,7 @@ router.get("/admin/results/:electionId", requireAdmin, async (req: AdminRequest,
       },
     });
   } catch (err) {
-    console.error("admin results load failed", err);
+    logger.error({ err }, "admin results load failed");
     return res.status(400).json({ ok: false, reason: "Gagal memuat hasil" });
   }
 });
@@ -576,7 +599,7 @@ router.post(
         },
       });
     } catch (err) {
-      console.error("finalize result failed", err);
+      logger.error({ err }, "finalize result failed");
       return res.status(400).json({ ok: false, reason: "Gagal finalisasi hasil" });
     }
   }
@@ -611,7 +634,7 @@ router.post(
         publishedAt: result.publishedAt?.toISOString() ?? null,
       });
     } catch (err) {
-      console.error("publish result failed", err);
+      logger.error({ err }, "publish result failed");
       return res.status(400).json({ ok: false, reason: "Gagal publish hasil" });
     }
   }
@@ -728,7 +751,7 @@ router.get(
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       return res.send(csv);
     } catch (err) {
-      console.error("export results failed", err);
+      logger.error({ err }, "export results failed");
       return res.status(400).json({ ok: false, reason: "Gagal export hasil" });
     }
   }
@@ -789,7 +812,7 @@ router.get(
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       return res.send(Buffer.from(buffer));
     } catch (err) {
-      console.error("export excel failed", err);
+      logger.error({ err }, "export excel failed");
       return res.status(400).json({ ok: false, reason: "Gagal export hasil" });
     }
   }
@@ -804,7 +827,6 @@ router.post("/admin/verifications/:id/approve", requireAdmin, async (req, res) =
     where: { id },
     select: {
       verificationStatus: true,
-      verificationCardPath: true,
       verificationSelfiePath: true,
     },
   });
@@ -814,8 +836,8 @@ router.post("/admin/verifications/:id/approve", requireAdmin, async (req, res) =
   if (student.verificationStatus !== "PENDING") {
     return res.status(400).json({ ok: false, reason: "Status harus PENDING" });
   }
-  if (!student.verificationCardPath || !student.verificationSelfiePath) {
-    return res.status(400).json({ ok: false, reason: "Bukti verifikasi belum lengkap" });
+  if (!student.verificationSelfiePath) {
+    return res.status(400).json({ ok: false, reason: "Foto selfie belum diupload" });
   }
   await prisma.student.update({
     where: { id },
@@ -876,7 +898,8 @@ router.post("/admin/chain/create-election", requireAdmin, async (req, res) => {
     });
     await logAdminAction(req, "election.create", { title, hash });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain create-election failed");
     return res.status(500).json({ ok: false, reason: "Gagal membuat event" });
   }
 });
@@ -897,7 +920,8 @@ router.post("/admin/chain/open-election", requireAdmin, async (req, res) => {
     await markElectionOpened(electionId);
     await logAdminAction(req, "election.open", { electionId: electionId.toString(), hash });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain open-election failed");
     return res.status(400).json({ ok: false, reason: "Gagal membuka event" });
   }
 });
@@ -917,7 +941,8 @@ router.post("/admin/chain/close-election", requireAdmin, async (req, res) => {
     });
     await logAdminAction(req, "election.close", { electionId: electionId.toString(), hash });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain close-election failed");
     return res.status(400).json({ ok: false, reason: "Gagal menutup event" });
   }
 });
@@ -951,7 +976,8 @@ router.post("/admin/chain/add-candidate", requireAdmin, async (req, res) => {
       hash,
     });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain add-candidate failed");
     return res.status(400).json({ ok: false, reason: "Gagal menambah kandidat" });
   }
 });
@@ -987,7 +1013,8 @@ router.post("/admin/chain/update-candidate", requireAdmin, async (req, res) => {
       hash,
     });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain update-candidate failed");
     return res.status(400).json({ ok: false, reason: "Gagal update kandidat" });
   }
 });
@@ -1018,7 +1045,8 @@ router.post("/admin/chain/hide-candidate", requireAdmin, async (req, res) => {
       hash,
     });
     return res.json({ ok: true, hash });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, "chain hide-candidate failed");
     return res.status(400).json({ ok: false, reason: "Gagal menyembunyikan kandidat" });
   }
 });
