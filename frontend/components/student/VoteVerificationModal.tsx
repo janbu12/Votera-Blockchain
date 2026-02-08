@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { Modal } from "@/components/Modal";
 
 type VoteVerificationPayload = {
   faceAssertionToken: string;
   selfieDataUrl?: string;
+  webauthnCredential?: unknown;
 };
 
 type VoteVerificationResult = {
@@ -32,6 +34,14 @@ function generateAssertionNonce() {
     return `nonce:${crypto.randomUUID()}`;
   }
   return `nonce:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+function webAuthnUnsupported() {
+  return (
+    typeof window === "undefined" ||
+    typeof window.PublicKeyCredential === "undefined" ||
+    typeof navigator.credentials?.get !== "function"
+  );
 }
 
 export function VoteVerificationModal({
@@ -129,6 +139,35 @@ export function VoteVerificationModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (webAuthnUnsupported()) {
+        setAttempts((prev) => prev + 1);
+        setSubmitError("Perangkat tidak mendukung fingerprint/passkey (WebAuthn).");
+        return;
+      }
+      const assertOptionsRes = await fetch("/api/student/webauthn/assert/options", {
+        method: "POST",
+      });
+      const assertOptionsBody = await assertOptionsRes.json().catch(() => ({}));
+      if (!assertOptionsRes.ok || !assertOptionsBody?.options) {
+        setAttempts((prev) => prev + 1);
+        setSubmitError(
+          assertOptionsBody?.reason ??
+            "Passkey belum aktif. Aktifkan dulu di halaman profil."
+        );
+        return;
+      }
+
+      let webauthnCredential: unknown;
+      try {
+        webauthnCredential = await startAuthentication({
+          optionsJSON: assertOptionsBody.options,
+        });
+      } catch {
+        setAttempts((prev) => prev + 1);
+        setSubmitError("Verifikasi fingerprint/passkey dibatalkan atau gagal.");
+        return;
+      }
+
       const faceAssertionToken =
         providerMode === "mock"
           ? `mock:pass:${generateAssertionNonce()}`
@@ -136,6 +175,7 @@ export function VoteVerificationModal({
       const result = await onSubmit({
         faceAssertionToken,
         selfieDataUrl: capturedSelfie,
+        webauthnCredential,
       });
       if (result.ok) {
         onClose();

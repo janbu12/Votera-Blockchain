@@ -56,7 +56,8 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 **5) Voting (mode relayer)**
 - Mahasiswa pilih kandidat → frontend buka modal kamera (step-up selfie) lalu kirim request ke backend.
 - Backend ambil foto resmi dari `campus-service`, lalu verifikasi wajah ke `face-service`.
-- Jika verifikasi lolos (score >= threshold), backend hash NIM dan kirim transaksi `voteByRelayer` ke kontrak.
+- Jika verifikasi wajah lolos (score >= threshold), backend meminta verifikasi passkey/WebAuthn.
+- Jika passkey lolos, backend hash NIM dan kirim transaksi `voteByRelayer` ke kontrak.
 - Kontrak cek 1 NIM = 1 vote, simpan suara on-chain → backend simpan receipt/tx hash (opsional).
 
 **6) Hasil & publikasi**
@@ -93,6 +94,7 @@ Secara default proyek juga bisa diuji di jaringan lokal (Hardhat).
 - **Hasil resmi** dengan kartu kandidat berfoto + chart persebaran suara.
 - **Progress publik anonim** (tanpa identitas pemilih).
 - **Step-up verifikasi selfie sebelum vote** (capture kamera -> verifikasi -> submit vote).
+- **Fingerprint/Passkey (WebAuthn)** sebagai langkah verifikasi kedua sebelum vote.
 - **Face matching real open-source** memakai FastAPI + facenet-pytorch (MTCNN + FaceNet, CPU local) dengan mode `mock` sebagai fallback demo.
 - **Toast & modal UX** ditingkatkan (toast selalu di atas modal, modal auto-close saat sukses).
 - **Superadmin** untuk manajemen akun admin + audit log ringkas.
@@ -310,6 +312,11 @@ Jika salah satu service di atas mati, alur vote-verification akan gagal (hard-bl
    - `FACE_MATCH_THRESHOLD`
    - `FACE_SERVICE_URL`
    - `FACE_SERVICE_TOKEN`
+   - `WEBAUTHN_RP_ID`
+   - `WEBAUTHN_RP_NAME`
+   - `WEBAUTHN_ORIGINS`
+   - `WEBAUTHN_REQUIRED_FOR_VOTE`
+   - `WEBAUTHN_TIMEOUT_MS`
 3) Jalankan Prisma:
    - `npm run db:migrate`
    - `npm run db:generate`
@@ -384,8 +391,36 @@ Catatan:
 - Login NIM + password.
 - Upload selfie untuk verifikasi (foto resmi dari kampus ditarik otomatis).
 - Setelah diverifikasi, ganti password.
-- Masuk event aktif dan lakukan voting.
+- Aktivasi fingerprint/passkey di halaman profil (sekali registrasi di device).
+- Masuk event aktif dan lakukan voting (selfie + passkey sebelum transaksi dikirim).
 ---
+
+## Alur Keamanan Vote (Face + Passkey)
+Urutan validasi sebelum suara dikirim ke blockchain:
+1) Mahasiswa klik vote di halaman event.
+2) Frontend capture selfie dan kirim ke backend (`/auth/vote-verify`).
+3) Backend ambil foto resmi kampus (`campus-service`) dan minta verifikasi ke `face-service`.
+4) Jika face match lolos threshold, backend lanjut challenge WebAuthn (passkey/fingerprint).
+5) Jika assertion WebAuthn valid, backend mengeksekusi vote relayer ke smart contract.
+6) Jika salah satu tahap gagal, vote ditolak (hard-block) dan tidak ada tx on-chain.
+
+Catatan:
+- Foto referensi resmi kampus berada di `campus-service/public/photos/`.
+- Selfie mahasiswa tidak disimpan permanen sebagai file di VOTERA (metadata verifikasi tetap dicatat untuk audit).
+
+## Uji Cepat Verifikasi Vote
+1) Pastikan service aktif: `campus-service`, `face-service`, `backend`, `frontend`.
+2) Login sebagai mahasiswa yang sudah `VERIFIED`.
+3) Registrasi passkey di halaman profil.
+4) Lakukan vote pada event aktif.
+5) Pastikan urutan sukses:
+   - selfie diverifikasi,
+   - passkey prompt muncul dan berhasil,
+   - backend mengembalikan `txHash`.
+6) Cek skenario gagal:
+   - wajah tidak cocok,
+   - passkey dibatalkan,
+   - `face-service` dimatikan (harus hard-block).
 
 ## Troubleshooting
 - Pastikan `SIGNER_PRIVATE_KEY` & `VOTING_CONTRACT_ADDRESS` valid.
@@ -399,6 +434,7 @@ Catatan:
 
 ## Catatan Penting (Keterbatasan Saat Ini)
 - Verifikasi wajah fase saat ini belum memakai anti-spoofing dedicated (belum ada deteksi foto/video replay attack tingkat lanjut).
+- Passkey/WebAuthn terikat pada device/browser; jika ganti device mahasiswa perlu registrasi ulang passkey.
 - Akurasi verifikasi sangat bergantung pada kualitas foto resmi kampus dan kualitas kamera/device mahasiswa.
 - `face-service` berjalan CPU-only, sehingga latensi bisa naik saat request verifikasi ramai.
 - Arsitektur 4 validator + 1 RPC sudah mendekati real-case, tetapi masih single-machine local untuk demo, belum high availability production.
