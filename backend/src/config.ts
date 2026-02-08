@@ -38,6 +38,18 @@ export const FACE_SERVICE_URL =
   process.env.FACE_SERVICE_URL || "http://localhost:4200";
 export const FACE_SERVICE_TOKEN =
   process.env.FACE_SERVICE_TOKEN || "change-this-face-token";
+export const WEBAUTHN_RP_ID = process.env.WEBAUTHN_RP_ID || "localhost";
+export const WEBAUTHN_RP_NAME = process.env.WEBAUTHN_RP_NAME || "VOTERA";
+export const WEBAUTHN_ORIGINS = (process.env.WEBAUTHN_ORIGINS || "http://localhost:3000")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+export const WEBAUTHN_REQUIRED_FOR_VOTE =
+  (process.env.WEBAUTHN_REQUIRED_FOR_VOTE ?? "true").toLowerCase() === "true";
+export const WEBAUTHN_TIMEOUT_MS = Math.max(
+  15000,
+  Number(process.env.WEBAUTHN_TIMEOUT_MS ?? "60000")
+);
 
 export const AUTO_CLOSE_ENABLED =
   (process.env.AUTO_CLOSE_ENABLED ?? "true").toLowerCase() === "true";

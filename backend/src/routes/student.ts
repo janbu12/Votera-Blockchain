@@ -8,6 +8,7 @@ import {
   FACE_MATCH_THRESHOLD,
   JWT_SECRET,
   VOTING_CONTRACT_ADDRESS,
+  WEBAUTHN_REQUIRED_FOR_VOTE,
 } from "../config";
 import { VOTING_READ_ABI, VOTING_WRITE_ABI, VOTING_ADMIN_ABI } from "../abi";
 import { publicClient, walletClient, signerAccount } from "../blockchain";
@@ -22,6 +23,18 @@ import {
   campusLogin,
 } from "../services/campus";
 import { type FaceVerificationDecision, verifyFaceForVote } from "../services/faceProvider";
+import {
+  buildChallengeExpiry,
+  challengeExpired,
+  createAuthenticationOptions,
+  createRegistrationOptions,
+  parseWebAuthnTransports,
+  serializeWebAuthnTransports,
+  validateAuthenticationResponse,
+  validateRegistrationResponse,
+  WEBAUTHN_PURPOSE_ASSERT_VOTE,
+  WEBAUTHN_PURPOSE_REGISTER,
+} from "../services/webauthn";
 import logger from "../logger";
 
 const router = express.Router();
@@ -84,6 +97,58 @@ async function createVoteVerificationRecord(
     }
     throw err;
   }
+}
+
+async function setWebAuthnChallenge(
+  studentId: number,
+  purpose: string,
+  challenge: string
+) {
+  await prisma.student.update({
+    where: { id: studentId },
+    data: {
+      webAuthnChallenge: challenge,
+      webAuthnChallengePurpose: purpose,
+      webAuthnChallengeExpiresAt: buildChallengeExpiry(),
+    },
+  });
+}
+
+async function consumeWebAuthnChallenge(
+  studentId: number,
+  purpose: string
+): Promise<string | null> {
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: {
+      webAuthnChallenge: true,
+      webAuthnChallengePurpose: true,
+      webAuthnChallengeExpiresAt: true,
+    },
+  });
+  if (!student?.webAuthnChallenge) return null;
+  if (student.webAuthnChallengePurpose !== purpose) return null;
+  if (challengeExpired(student.webAuthnChallengeExpiresAt)) {
+    await prisma.student.update({
+      where: { id: studentId },
+      data: {
+        webAuthnChallenge: null,
+        webAuthnChallengePurpose: null,
+        webAuthnChallengeExpiresAt: null,
+      },
+    });
+    return null;
+  }
+  const challenge = student.webAuthnChallenge;
+  await prisma.student.update({
+    where: { id: studentId },
+    data: {
+      webAuthnChallenge: null,
+      webAuthnChallengePurpose: null,
+      webAuthnChallengeExpiresAt: null,
+    },
+  });
+  return challenge;
 }
 
 router.post("/auth/login", async (req, res) => {
@@ -167,6 +232,144 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res) => {
     campusOfficialPhotoUrl: campusStudent?.officialPhotoUrl ?? null,
   });
 });
+
+router.get("/auth/webauthn/status", requireAuth, async (req: AuthRequest, res) => {
+  const student = await prisma.student.findUnique({
+    where: { id: req.user!.id },
+    select: {
+      webAuthnCredentialId: true,
+      webAuthnRegisteredAt: true,
+    },
+  });
+
+  return res.json({
+    ok: true,
+    requiredForVote: WEBAUTHN_REQUIRED_FOR_VOTE,
+    registered: Boolean(student?.webAuthnCredentialId),
+    registeredAt: student?.webAuthnRegisteredAt?.toISOString() ?? null,
+  });
+});
+
+router.post(
+  "/auth/webauthn/register/options",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    if (!(await ensureVerifiedStudent(req, res))) return;
+
+    const student = await prisma.student.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        webAuthnCredentialId: true,
+        webAuthnTransports: true,
+      },
+    });
+    if (!student) {
+      return res.status(404).json({ ok: false, reason: "Mahasiswa tidak ditemukan" });
+    }
+    if (student.webAuthnCredentialId) {
+      return res.status(409).json({ ok: false, reason: "Passkey sudah terdaftar" });
+    }
+
+    const options = await createRegistrationOptions({
+      nim: req.user!.nim,
+      excludeCredentialId: student.webAuthnCredentialId,
+      excludeTransports: parseWebAuthnTransports(student.webAuthnTransports),
+    });
+    await setWebAuthnChallenge(req.user!.id, WEBAUTHN_PURPOSE_REGISTER, options.challenge);
+    return res.json({ ok: true, options });
+  }
+);
+
+router.post(
+  "/auth/webauthn/register/verify",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    if (!(await ensureVerifiedStudent(req, res))) return;
+    const challenge = await consumeWebAuthnChallenge(
+      req.user!.id,
+      WEBAUTHN_PURPOSE_REGISTER
+    );
+    if (!challenge) {
+      return res.status(400).json({
+        ok: false,
+        reason: "Challenge passkey tidak valid atau kadaluarsa",
+      });
+    }
+
+    try {
+      const { verified, result } = await validateRegistrationResponse({
+        response: req.body?.credential,
+        expectedChallenge: challenge,
+      });
+      if (!verified || !result) {
+        return res.status(400).json({ ok: false, reason: "Registrasi passkey gagal" });
+      }
+
+      await prisma.student.update({
+        where: { id: req.user!.id },
+        data: {
+          webAuthnCredentialId: result.credentialId,
+          webAuthnPublicKey: result.publicKey,
+          webAuthnCounter: result.counter,
+          webAuthnDeviceType: result.deviceType,
+          webAuthnBackedUp: result.backedUp,
+          webAuthnTransports: serializeWebAuthnTransports(result.transports),
+          webAuthnRegisteredAt: new Date(),
+        },
+      });
+
+      logger.info(
+        {
+          event: "webauthn.registered",
+          nim: req.user!.nim,
+          studentId: req.user!.id,
+        },
+        "student passkey registered"
+      );
+      return res.json({ ok: true });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          event: "webauthn.register_failed",
+          nim: req.user!.nim,
+        },
+        "student passkey registration failed"
+      );
+      return res.status(400).json({ ok: false, reason: "Registrasi passkey gagal" });
+    }
+  }
+);
+
+router.post(
+  "/auth/webauthn/assert/options",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    if (!(await ensureVerifiedStudent(req, res))) return;
+    const student = await prisma.student.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        webAuthnCredentialId: true,
+        webAuthnTransports: true,
+      },
+    });
+
+    if (!student?.webAuthnCredentialId) {
+      return res.status(404).json({
+        ok: false,
+        reason: "Passkey belum terdaftar. Aktivasi dulu di halaman profil.",
+      });
+    }
+
+    const options = await createAuthenticationOptions({
+      credentialId: student.webAuthnCredentialId,
+      transports: parseWebAuthnTransports(student.webAuthnTransports),
+    });
+    await setWebAuthnChallenge(req.user!.id, WEBAUTHN_PURPOSE_ASSERT_VOTE, options.challenge);
+
+    return res.json({ ok: true, options });
+  }
+);
 
 router.post("/auth/change-password", requireAuth, async (req: AuthRequest, res) => {
   if (!(await ensureVerifiedStudent(req, res))) return;
@@ -326,6 +529,7 @@ router.post("/auth/vote-verify", requireAuth, async (req: AuthRequest, res) => {
   const faceAssertionToken = String(req.body?.faceAssertionToken ?? "").trim();
   const selfieDataUrl =
     typeof req.body?.selfieDataUrl === "string" ? req.body.selfieDataUrl : undefined;
+  const webauthnCredential = req.body?.webauthnCredential;
 
   if (!electionIdRaw || !candidateIdRaw || !faceAssertionToken) {
     return res.status(400).json({ ok: false, reason: "Invalid payload" });
@@ -536,6 +740,101 @@ router.post("/auth/vote-verify", requireAuth, async (req: AuthRequest, res) => {
       faceMatchScore: decision.faceMatchScore,
       threshold: FACE_MATCH_THRESHOLD,
     });
+  }
+
+  const student = await prisma.student.findUnique({
+    where: { id: req.user!.id },
+    select: {
+      webAuthnCredentialId: true,
+      webAuthnPublicKey: true,
+      webAuthnCounter: true,
+      webAuthnTransports: true,
+    },
+  });
+
+  if (WEBAUTHN_REQUIRED_FOR_VOTE && !student?.webAuthnCredentialId) {
+    return res.status(412).json({
+      ok: false,
+      reason: "Passkey belum terdaftar. Aktivasi fingerprint dulu di halaman profil.",
+      verificationId: verification.id,
+    });
+  }
+
+  if (student?.webAuthnCredentialId) {
+    if (!student.webAuthnPublicKey) {
+      return res.status(412).json({
+        ok: false,
+        reason: "Passkey tidak valid. Registrasi ulang passkey di halaman profil.",
+        verificationId: verification.id,
+      });
+    }
+
+    if (!webauthnCredential || typeof webauthnCredential !== "object") {
+      return res.status(400).json({
+        ok: false,
+        reason: "Verifikasi fingerprint diperlukan sebelum vote.",
+        verificationId: verification.id,
+      });
+    }
+
+    const challenge = await consumeWebAuthnChallenge(
+      req.user!.id,
+      WEBAUTHN_PURPOSE_ASSERT_VOTE
+    );
+    if (!challenge) {
+      return res.status(400).json({
+        ok: false,
+        reason: "Challenge fingerprint tidak valid atau kadaluarsa.",
+        verificationId: verification.id,
+      });
+    }
+
+    try {
+      const verified = await validateAuthenticationResponse({
+        response: webauthnCredential,
+        expectedChallenge: challenge,
+        credentialId: student.webAuthnCredentialId,
+        publicKey: student.webAuthnPublicKey,
+        counter: student.webAuthnCounter,
+        transports: parseWebAuthnTransports(student.webAuthnTransports),
+      });
+      if (!verified.verified) {
+        return res.status(403).json({
+          ok: false,
+          reason: "Fingerprint/passkey tidak valid.",
+          verificationId: verification.id,
+        });
+      }
+      await prisma.student.update({
+        where: { id: req.user!.id },
+        data: { webAuthnCounter: verified.newCounter },
+      });
+      logger.info(
+        {
+          event: "vote.verify.passkey_ok",
+          nim: req.user!.nim,
+          electionId: electionId.toString(),
+          candidateId: candidateId.toString(),
+        },
+        "vote passkey challenge verified"
+      );
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          event: "vote.verify.passkey_rejected",
+          nim: req.user!.nim,
+          electionId: electionId.toString(),
+          candidateId: candidateId.toString(),
+        },
+        "vote passkey verification failed"
+      );
+      return res.status(403).json({
+        ok: false,
+        reason: "Fingerprint/passkey tidak valid.",
+        verificationId: verification.id,
+      });
+    }
   }
 
   try {

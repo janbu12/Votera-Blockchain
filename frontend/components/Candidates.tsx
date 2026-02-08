@@ -707,6 +707,7 @@ function CandidateRow({
   const submitVerifiedVote = async (payload: {
     faceAssertionToken: string;
     selfieDataUrl?: string;
+    webauthnCredential?: unknown;
   }) => {
     setIsSigning(true);
     try {
@@ -720,6 +721,7 @@ function CandidateRow({
           candidateId: cid.toString(),
           faceAssertionToken: payload.faceAssertionToken,
           selfieDataUrl: payload.selfieDataUrl,
+          webauthnCredential: payload.webauthnCredential,
         }),
       });
       const data = await res.json().catch(() => ({}));

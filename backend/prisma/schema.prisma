@@ -19,6 +19,16 @@ model Student {
   nim                String   @unique
   passwordHash       String
   mustChangePassword Boolean  @default(true)
+  webAuthnCredentialId String? @unique
+  webAuthnPublicKey    String?
+  webAuthnCounter      Int     @default(0)
+  webAuthnDeviceType   String?
+  webAuthnBackedUp     Boolean?
+  webAuthnTransports   String?
+  webAuthnRegisteredAt DateTime?
+  webAuthnChallenge          String?
+  webAuthnChallengePurpose   String?
+  webAuthnChallengeExpiresAt DateTime?
   verificationStatus VerificationStatus @default(NONE)
   verificationCardPath String?
   verificationSelfiePath String?
