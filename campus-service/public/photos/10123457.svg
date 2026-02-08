@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640" viewBox="0 0 480 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="480" height="640" fill="url(#bg)"/>
+  <rect x="28" y="28" width="424" height="584" rx="20" fill="#e2e8f0"/>
+  <circle cx="240" cy="250" r="86" fill="#94a3b8"/>
+  <rect x="138" y="360" width="204" height="120" rx="24" fill="#94a3b8"/>
+  <text x="240" y="86" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#0f172a" font-weight="700">FOTO RESMI KAMPUS</text>
+  <text x="240" y="548" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" fill="#0f172a" font-weight="700">NIM 10123457</text>
+</svg>

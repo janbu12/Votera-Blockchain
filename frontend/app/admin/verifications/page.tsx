@@ -12,9 +12,10 @@ type VerificationItem = {
   nim: string;
   verificationStatus: VerificationStatus;
   verificationSubmittedAt: string | null;
-  verificationCardPath: string | null;
   verificationSelfiePath: string | null;
   verificationRejectReason: string | null;
+  campusName: string | null;
+  campusOfficialPhotoUrl: string | null;
 };
 
 type Counts = Record<VerificationStatus, number>;
@@ -74,7 +75,7 @@ export default function VerificationAdminPage() {
 
   const fetchCounts = () => {
     if (!isAdminAuthed) return;
-    fetch(`/api/admin/verifications?status=ALL`)
+    fetch(`/api/admin/verifications?status=ALL&includeCampus=0`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then((result) => {
         if (!result.ok) {
@@ -196,8 +197,7 @@ export default function VerificationAdminPage() {
             Review Identitas Mahasiswa
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Pastikan pemilih adalah pemilik NIM yang sah dengan memeriksa kartu
-            mahasiswa dan selfie.
+            Cocokkan foto resmi kampus dengan selfie terbaru sebelum approve.
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -332,10 +332,11 @@ export default function VerificationAdminPage() {
           ) : (
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               {filteredItems.map((item) => {
-                const cardUrl = fileUrl(item.verificationCardPath);
                 const selfieUrl = fileUrl(item.verificationSelfiePath);
                 const canReview =
-                  item.verificationStatus === "PENDING" && !!cardUrl && !!selfieUrl;
+                  item.verificationStatus === "PENDING" &&
+                  !!item.campusOfficialPhotoUrl &&
+                  !!selfieUrl;
                 const isBusy = actionLoading[item.id] != null;
                 const isApproving = actionLoading[item.id] === "approve";
                 const isRejecting = actionLoading[item.id] === "reject";
@@ -368,17 +369,20 @@ export default function VerificationAdminPage() {
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                        {cardUrl ? (
+                        {item.campusOfficialPhotoUrl ? (
                           <img
-                            src={cardUrl}
-                            alt={`Kartu ${item.nim}`}
+                            src={item.campusOfficialPhotoUrl}
+                            alt={`Foto resmi ${item.nim}`}
                             className="h-40 w-full object-cover"
                           />
                         ) : (
                           <div className="flex h-40 items-center justify-center text-xs text-slate-400">
-                            Tidak ada foto kartu
+                            Foto resmi kampus tidak tersedia
                           </div>
                         )}
+                        <div className="border-t border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                          Foto resmi kampus {item.campusName ? `- ${item.campusName}` : ""}
+                        </div>
                       </div>
                       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                         {selfieUrl ? (
@@ -389,9 +393,12 @@ export default function VerificationAdminPage() {
                           />
                         ) : (
                           <div className="flex h-40 items-center justify-center text-xs text-slate-400">
-                            Tidak ada foto selfie
+                            Selfie belum diupload
                           </div>
                         )}
+                        <div className="border-t border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                          Selfie mahasiswa
+                        </div>
                       </div>
                     </div>
 
@@ -428,16 +435,6 @@ export default function VerificationAdminPage() {
                         disabled={isBusy}
                         className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100"
                       />
-                      {cardUrl && (
-                        <a
-                          href={cardUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-semibold text-slate-500 hover:text-slate-700"
-                        >
-                          Buka kartu
-                        </a>
-                      )}
                       {selfieUrl && (
                         <a
                           href={selfieUrl}

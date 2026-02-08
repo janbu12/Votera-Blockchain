@@ -11,13 +11,13 @@ import { useStudent, VerificationStatus } from "@/components/student/StudentProv
 export default function StudentProfilePage() {
   const {
     nim,
+    campusName,
+    campusOfficialPhotoUrl,
     verificationStatus,
     verificationReason,
     uploading,
     uploadMsg,
-    cardPreview,
     selfiePreview,
-    onCardFileChange,
     onSelfieFileChange,
     uploadVerification,
   } = useStudent();
@@ -38,7 +38,12 @@ export default function StudentProfilePage() {
         </p>
       </div>
 
-      <ProfileCard nim={nim ?? "-"} status={status} reason={verificationReason} />
+      <ProfileCard
+        nim={nim ?? "-"}
+        campusName={campusName}
+        status={status}
+        reason={verificationReason}
+      />
       <VerificationStepper status={status} />
 
       {status === "PENDING" ? (
@@ -49,12 +54,12 @@ export default function StudentProfilePage() {
         <VerificationCard
           status={status}
           reason={verificationReason}
+          campusName={campusName}
+          campusOfficialPhotoUrl={campusOfficialPhotoUrl}
           uploading={uploading}
           uploadMsg={uploadMsg}
           onUpload={uploadVerification}
-          onCardFileChange={onCardFileChange}
           onSelfieFileChange={onSelfieFileChange}
-          cardPreview={cardPreview}
           selfiePreview={selfiePreview}
         />
       )}

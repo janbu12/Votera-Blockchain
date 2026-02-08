@@ -8,6 +8,7 @@ import {
   SUPERADMIN_USERNAME,
 } from "../config";
 import type { AdminRequest } from "../middleware/auth";
+import logger from "../logger";
 
 export async function ensureSuperadmin() {
   const usersCount = await prisma.adminUser.count();
@@ -25,7 +26,7 @@ export async function ensureSuperadmin() {
           isActive: true,
         },
       });
-      console.log(`Superadmin bootstrap created: ${SUPERADMIN_USERNAME}`);
+      logger.info(`Superadmin bootstrap created: ${SUPERADMIN_USERNAME}`);
     }
   }
   if (usersCount === 0 && ADMIN_PASSWORD) {
@@ -42,7 +43,7 @@ export async function ensureSuperadmin() {
           isActive: true,
         },
       });
-      console.log(`Admin bootstrap created: ${ADMIN_USERNAME}`);
+      logger.info(`Admin bootstrap created: ${ADMIN_USERNAME}`);
     }
   }
 }
@@ -64,6 +65,6 @@ export async function logAdminAction(
       },
     });
   } catch (err) {
-    console.error("audit log failed", err);
+    logger.error({ err }, "audit log failed");
   }
 }

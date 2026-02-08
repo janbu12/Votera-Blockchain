@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "node:path";
+import type { NextFunction, Request, Response } from "express";
 import {
   AUTO_CLOSE_ENABLED,
   AUTO_CLOSE_INTERVAL_MS,
@@ -13,12 +14,15 @@ import { autoCloseExpiredElections } from "./services/autoClose";
 import adminRouter from "./routes/admin";
 import studentRouter from "./routes/student";
 import publicRouter from "./routes/public";
+import logger from "./logger";
+import { requestLogger } from "./middleware/requestLogger";
 
 const app = express();
 app.use(cors({ origin: "http://localhost:3000" }));
 app.use(express.json());
+app.use(requestLogger);
 
-ensureSuperadmin().catch((err) => console.error("superadmin bootstrap failed", err));
+ensureSuperadmin().catch((err) => logger.error({ err }, "superadmin bootstrap failed"));
 
 app.use(studentRouter);
 app.use(adminRouter);
@@ -27,8 +31,14 @@ app.use(publicRouter);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "unhandled error");
+  if (res.headersSent) return;
+  res.status(500).json({ ok: false, reason: "Internal server error" });
+});
+
 app.listen(4000, () => {
-  console.log("Backend running on http://localhost:4000");
+  logger.info("Backend running on http://localhost:4000");
 });
 
 if (AUTO_CLOSE_ENABLED) {
@@ -41,7 +51,7 @@ if (AUTO_MINE && RPC_URL.includes("127.0.0.1")) {
     try {
       await (publicClient as any).request({ method: "evm_mine" });
     } catch (err) {
-      console.error("auto mine failed", err);
+      logger.error({ err }, "auto mine failed");
     }
   }, 10000);
 }

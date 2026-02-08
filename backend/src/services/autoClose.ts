@@ -1,6 +1,7 @@
 import { walletClient, publicClient } from "../blockchain";
 import { VOTING_CONTRACT_ADDRESS } from "../config";
 import { VOTING_ADMIN_ABI } from "../abi";
+import logger from "../logger";
 
 let autoCloseRunning = false;
 
@@ -37,13 +38,13 @@ export async function autoCloseExpiredElections() {
           functionName: "closeElection",
           args: [BigInt(i)],
         });
-        console.log(`[auto-close] election #${i} closed`, hash);
+        logger.info({ electionId: i, hash }, "auto-close election closed");
       } catch (err) {
-        console.error(`[auto-close] failed to close #${i}`, err);
+        logger.error({ err, electionId: i }, "auto-close failed to close");
       }
     }
   } catch (err) {
-    console.error("auto-close poll failed", err);
+    logger.error({ err }, "auto-close poll failed");
   } finally {
     autoCloseRunning = false;
   }

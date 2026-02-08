@@ -17,6 +17,14 @@ export const UPLOAD_DIR =
 export const CANDIDATE_UPLOAD_DIR =
   process.env.CANDIDATE_UPLOAD_DIR ||
   path.join(process.cwd(), "uploads", "candidates");
+export const CAMPUS_SERVICE_URL =
+  process.env.CAMPUS_SERVICE_URL || "http://localhost:4100";
+export const CAMPUS_SERVICE_TOKEN =
+  process.env.CAMPUS_SERVICE_TOKEN || "change-this-campus-token";
+export const CAMPUS_SERVICE_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.CAMPUS_SERVICE_TIMEOUT_MS ?? "8000")
+);
 
 export const AUTO_CLOSE_ENABLED =
   (process.env.AUTO_CLOSE_ENABLED ?? "true").toLowerCase() === "true";

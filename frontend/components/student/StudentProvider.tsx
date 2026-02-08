@@ -27,6 +27,8 @@ export type VoteHistoryItem = {
 type StudentContextValue = {
   loading: boolean;
   nim: string | null;
+  campusName: string | null;
+  campusOfficialPhotoUrl: string | null;
   mustChangePassword: boolean;
   verificationStatus: VerificationStatus | null;
   verificationReason: string | null;
@@ -37,9 +39,7 @@ type StudentContextValue = {
   refreshVoteHistory: () => Promise<void>;
   uploading: boolean;
   uploadMsg: string | null;
-  cardPreview: string | null;
   selfiePreview: string | null;
-  onCardFileChange: (file: File | null) => void;
   onSelfieFileChange: (file: File | null) => void;
   uploadVerification: () => Promise<void>;
   newPassword: string;
@@ -57,6 +57,10 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [nim, setNim] = useState<string | null>(null);
+  const [campusName, setCampusName] = useState<string | null>(null);
+  const [campusOfficialPhotoUrl, setCampusOfficialPhotoUrl] = useState<string | null>(
+    null
+  );
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [verificationStatus, setVerificationStatus] =
     useState<VerificationStatus | null>(null);
@@ -68,9 +72,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
 
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
-  const [cardFile, setCardFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
-  const [cardPreview, setCardPreview] = useState<string | null>(null);
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
 
   const [newPassword, setNewPassword] = useState("");
@@ -86,6 +88,8 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
         throw new Error(data?.reason ?? "Unauthorized");
       }
       setNim(data.nim ?? null);
+      setCampusName(data.campusName ?? null);
+      setCampusOfficialPhotoUrl(data.campusOfficialPhotoUrl ?? null);
       setMustChangePassword(!!data.mustChangePassword);
       if (data.verificationStatus) {
         setVerificationStatus(data.verificationStatus as VerificationStatus);
@@ -110,6 +114,15 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
           (data.verificationStatus ?? "NONE") as VerificationStatus
         );
         setVerificationReason(data.verificationRejectReason ?? null);
+        if (typeof data.campusName === "string" || data.campusName === null) {
+          setCampusName(data.campusName ?? null);
+        }
+        if (
+          typeof data.campusOfficialPhotoUrl === "string" ||
+          data.campusOfficialPhotoUrl === null
+        ) {
+          setCampusOfficialPhotoUrl(data.campusOfficialPhotoUrl ?? null);
+        }
       }
     } finally {
       setVerificationLoading(false);
@@ -156,18 +169,6 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
   }, [verificationStatus, refreshMe, refreshVerification]);
 
   useEffect(() => {
-    if (!cardFile) {
-      setCardPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(cardFile);
-    setCardPreview(url);
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [cardFile]);
-
-  useEffect(() => {
     if (!selfieFile) {
       setSelfiePreview(null);
       return;
@@ -181,14 +182,13 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
 
   const uploadVerification = useCallback(async () => {
     setUploadMsg(null);
-    if (!cardFile || !selfieFile) {
-      setUploadMsg("Foto kartu dan selfie wajib diisi.");
+    if (!selfieFile) {
+      setUploadMsg("Foto selfie wajib diisi.");
       return;
     }
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append("card", cardFile);
       formData.append("selfie", selfieFile);
       const res = await fetch("/api/student/verification/upload", {
         method: "POST",
@@ -200,7 +200,6 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setUploadMsg("Verifikasi berhasil dikirim.");
-      setCardFile(null);
       setSelfieFile(null);
       await refreshVerification();
       await refreshMe();
@@ -209,7 +208,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setUploading(false);
     }
-  }, [cardFile, selfieFile, refreshMe, refreshVerification]);
+  }, [selfieFile, refreshMe, refreshVerification]);
 
   const submitPasswordChange = useCallback(async () => {
     setPasswordMessage(null);
@@ -249,6 +248,8 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
     () => ({
       loading,
       nim,
+      campusName,
+      campusOfficialPhotoUrl,
       mustChangePassword,
       verificationStatus,
       verificationReason,
@@ -259,9 +260,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
       refreshVoteHistory,
       uploading,
       uploadMsg,
-      cardPreview,
       selfiePreview,
-      onCardFileChange: setCardFile,
       onSelfieFileChange: setSelfieFile,
       uploadVerification,
       newPassword,
@@ -275,6 +274,8 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
     [
       loading,
       nim,
+      campusName,
+      campusOfficialPhotoUrl,
       mustChangePassword,
       verificationStatus,
       verificationReason,
@@ -285,7 +286,6 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
       refreshVoteHistory,
       uploading,
       uploadMsg,
-      cardPreview,
       selfiePreview,
       uploadVerification,
       newPassword,

@@ -1,5 +1,6 @@
 import express from "express";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import { encodePacked, keccak256 } from "viem";
 import { prisma } from "../db";
 import {
@@ -11,6 +12,12 @@ import { publicClient, walletClient, signerAccount } from "../blockchain";
 import { upload, toPublicPath } from "../uploads";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { ensureVerifiedStudent } from "../services/student";
+import {
+  campusChangePassword,
+  campusGetStudent,
+  campusLogin,
+} from "../services/campus";
+import logger from "../logger";
 
 const router = express.Router();
 const paramValue = (value: string | string[]) => (Array.isArray(value) ? value[0] : value);
@@ -23,24 +30,52 @@ router.post("/auth/login", async (req, res) => {
     return res.status(400).json({ ok: false, reason: "NIM dan password wajib diisi" });
   }
 
-  const student = await prisma.student.findUnique({ where: { nim } });
-  if (!student) {
+  let campusStudent;
+  try {
+    campusStudent = await campusLogin(nim, password);
+  } catch (err) {
+    logger.error({ err, nim }, "student login campus-service failed");
+    const reason =
+      err instanceof Error ? err.message : "Campus service tidak tersedia";
+    return res.status(503).json({ ok: false, reason });
+  }
+
+  if (!campusStudent) {
     return res.status(401).json({ ok: false, reason: "NIM atau password salah" });
   }
 
-  const isValid = await (await import("bcryptjs")).default.compare(
-    password,
-    student.passwordHash
+  const fallbackPasswordHash = await bcrypt.hash(
+    `${nim}:${Date.now().toString()}:${Math.random().toString(16).slice(2)}`,
+    10
   );
-  if (!isValid) {
-    return res.status(401).json({ ok: false, reason: "NIM atau password salah" });
-  }
+  const student = await prisma.student.upsert({
+    where: { nim },
+    update: {},
+    create: {
+      nim,
+      passwordHash: fallbackPasswordHash,
+      mustChangePassword: true,
+    },
+    select: {
+      id: true,
+      nim: true,
+      mustChangePassword: true,
+    },
+  });
 
   const token = jwt.sign({ sub: student.id, nim: student.nim }, JWT_SECRET, {
     expiresIn: "7d",
   });
 
-  return res.json({ ok: true, token, mustChangePassword: student.mustChangePassword });
+  return res.json({
+    ok: true,
+    token,
+    mustChangePassword: student.mustChangePassword,
+    campusStudent: {
+      name: campusStudent.name,
+      officialPhotoUrl: campusStudent.officialPhotoUrl,
+    },
+  });
 });
 
 router.get("/auth/me", requireAuth, async (req: AuthRequest, res) => {
@@ -55,7 +90,18 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res) => {
   if (!student) {
     return res.status(404).json({ ok: false, reason: "Not found" });
   }
-  return res.json({ ok: true, ...student });
+  let campusStudent = null;
+  try {
+    campusStudent = await campusGetStudent(student.nim);
+  } catch {
+    campusStudent = null;
+  }
+  return res.json({
+    ok: true,
+    ...student,
+    campusName: campusStudent?.name ?? null,
+    campusOfficialPhotoUrl: campusStudent?.officialPhotoUrl ?? null,
+  });
 });
 
 router.post("/auth/change-password", requireAuth, async (req: AuthRequest, res) => {
@@ -65,7 +111,16 @@ router.post("/auth/change-password", requireAuth, async (req: AuthRequest, res) 
     return res.status(400).json({ ok: false, reason: "Password minimal 8 karakter" });
   }
 
-  const hash = await (await import("bcryptjs")).default.hash(newPassword, 10);
+  try {
+    await campusChangePassword(req.user!.nim, newPassword);
+  } catch (err) {
+    logger.error({ err, nim: req.user?.nim }, "student change-password campus-service failed");
+    const reason =
+      err instanceof Error ? err.message : "Gagal sinkron password ke kampus";
+    return res.status(503).json({ ok: false, reason });
+  }
+
+  const hash = await bcrypt.hash(newPassword, 10);
   await prisma.student.update({
     where: { id: req.user!.id },
     data: { passwordHash: hash, mustChangePassword: false },
@@ -292,6 +347,7 @@ router.get(
     const student = await prisma.student.findUnique({
       where: { id: req.user!.id },
       select: {
+        nim: true,
         verificationStatus: true,
         verificationRejectReason: true,
         verificationSubmittedAt: true,
@@ -302,32 +358,36 @@ router.get(
     if (!student) {
       return res.status(404).json({ ok: false, reason: "Not found" });
     }
-    return res.json({ ok: true, ...student });
+    let campusStudent = null;
+    try {
+      campusStudent = await campusGetStudent(student.nim);
+    } catch {
+      campusStudent = null;
+    }
+    return res.json({
+      ok: true,
+      ...student,
+      campusName: campusStudent?.name ?? null,
+      campusOfficialPhotoUrl: campusStudent?.officialPhotoUrl ?? null,
+    });
   }
 );
 
 router.post(
   "/auth/verification/upload",
   requireAuth,
-  upload.fields([
-    { name: "card", maxCount: 1 },
-    { name: "selfie", maxCount: 1 },
-  ]),
+  upload.single("selfie"),
   async (req: AuthRequest, res) => {
-    const files = req.files as
-      | { card?: Express.Multer.File[]; selfie?: Express.Multer.File[] }
-      | undefined;
-    const cardFile = files?.card?.[0];
-    const selfieFile = files?.selfie?.[0];
-    if (!cardFile || !selfieFile) {
-      return res.status(400).json({ ok: false, reason: "File tidak lengkap" });
+    const selfieFile = req.file;
+    if (!selfieFile) {
+      return res.status(400).json({ ok: false, reason: "Foto selfie wajib diisi" });
     }
 
     await prisma.student.update({
       where: { id: req.user!.id },
       data: {
         verificationStatus: "PENDING",
-        verificationCardPath: pathRelative(cardFile.path),
+        verificationCardPath: null,
         verificationSelfiePath: pathRelative(selfieFile.path),
         verificationSubmittedAt: new Date(),
         verificationVerifiedAt: null,

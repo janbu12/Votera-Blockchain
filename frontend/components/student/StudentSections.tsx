@@ -244,10 +244,12 @@ export function ActiveEventSummary({ onGoVote }: { onGoVote: () => void }) {
 
 export function ProfileCard({
   nim,
+  campusName,
   status,
   reason,
 }: {
   nim: string;
+  campusName: string | null;
   status: string | null;
   reason: string | null;
 }) {
@@ -255,6 +257,9 @@ export function ProfileCard({
     <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
       <p>
         NIM: <span className="font-semibold">{nim}</span>
+      </p>
+      <p className="mt-1">
+        Nama kampus: <span className="font-semibold">{campusName ?? "-"}</span>
       </p>
       <p className="mt-1">
         Status verifikasi: <span className="font-semibold">{status ?? "-"}</span>
@@ -402,22 +407,22 @@ function OpenElectionCard({
 export function VerificationCard({
   status,
   reason,
+  campusName,
+  campusOfficialPhotoUrl,
   uploading,
   uploadMsg,
   onUpload,
-  onCardFileChange,
   onSelfieFileChange,
-  cardPreview,
   selfiePreview,
 }: {
   status: "NONE" | "PENDING" | "VERIFIED" | "REJECTED" | null;
   reason: string | null;
+  campusName: string | null;
+  campusOfficialPhotoUrl: string | null;
   uploading: boolean;
   uploadMsg: string | null;
   onUpload: () => void;
-  onCardFileChange: (file: File | null) => void;
   onSelfieFileChange: (file: File | null) => void;
-  cardPreview: string | null;
   selfiePreview: string | null;
 }) {
   const isRejected = status === "REJECTED";
@@ -431,7 +436,7 @@ export function VerificationCard({
             Verifikasi Identitas Mahasiswa
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Upload foto kartu mahasiswa dan selfie untuk verifikasi.
+            Foto resmi kampus dipakai sebagai acuan. Upload selfie terbaru untuk verifikasi.
           </p>
           {isRejected && reason && (
             <p className="mt-2 text-xs text-rose-600">Alasan: {reason}</p>
@@ -447,11 +452,24 @@ export function VerificationCard({
         </span>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <UploadCard
-          label="Foto Kartu Mahasiswa"
-          preview={cardPreview}
-          onChange={onCardFileChange}
-        />
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <span className="text-xs font-semibold text-slate-700">
+            Foto Resmi Kampus {campusName ? `- ${campusName}` : ""}
+          </span>
+          <div className="mt-3 h-32 overflow-hidden rounded-xl border border-dashed border-slate-200 bg-white">
+            {campusOfficialPhotoUrl ? (
+              <img
+                src={campusOfficialPhotoUrl}
+                alt="Foto resmi kampus"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-slate-300">
+                Foto resmi kampus belum tersedia
+              </div>
+            )}
+          </div>
+        </div>
         <UploadCard
           label="Foto Selfie"
           preview={selfiePreview}
