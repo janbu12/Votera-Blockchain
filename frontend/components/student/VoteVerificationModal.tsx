@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Modal } from "@/components/Modal";
 
@@ -69,6 +69,13 @@ export function VoteVerificationModal({
     setCameraReady(false);
   };
 
+  const attachStreamToVideo = useCallback(async () => {
+    if (!videoRef.current || !streamRef.current) return;
+    videoRef.current.srcObject = streamRef.current;
+    await videoRef.current.play().catch(() => {});
+    setCameraReady(true);
+  }, []);
+
   useEffect(() => {
     if (!open) {
       stopStream();
@@ -96,11 +103,7 @@ export function VoteVerificationModal({
           return;
         }
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
-        }
-        setCameraReady(true);
+        await attachStreamToVideo();
       } catch {
         setCameraError("Kamera gagal dibuka. Izinkan akses kamera lalu coba lagi.");
       }
@@ -111,7 +114,12 @@ export function VoteVerificationModal({
       cancelled = true;
       stopStream();
     };
-  }, [open]);
+  }, [open, attachStreamToVideo]);
+
+  useEffect(() => {
+    if (!open || capturedSelfie) return;
+    void attachStreamToVideo();
+  }, [open, capturedSelfie, attachStreamToVideo]);
 
   const captureSelfie = () => {
     if (!videoRef.current) return;
@@ -270,7 +278,10 @@ export function VoteVerificationModal({
           ) : (
             <>
               <button
-                onClick={() => setCapturedSelfie(null)}
+                onClick={() => {
+                  setCapturedSelfie(null);
+                  setSubmitError(null);
+                }}
                 disabled={submitting}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
